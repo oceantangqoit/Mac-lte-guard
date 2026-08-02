@@ -5,68 +5,291 @@
 </p>
 
 <p align="center">
-  <b>Votre adaptateur réseau USB ne répond plus après la veille du Mac ? Il se répare tout seul au réveil.</b><br>
+  <b>Votre adaptateur réseau USB ne répond plus après la veille écran fermé ? Il se répare tout seul au réveil — fini le débranchement/rebranchement.</b><br>
   <sub>Gardien d'adaptateur réseau USB dans la barre des menus · Swift natif · sans dépendances · MIT</sub>
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a> · <a href="README.ru.md">Русский</a> · <a href="README.rw.md">Ikinyarwanda</a>
+  <a href="README.md">简体中文</a> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <b>Français</b> · <a href="README.es.md">Español</a> · <a href="README.ru.md">Русский</a> · <a href="README.ar.md">العربية</a> · <a href="README.rw.md">Ikinyarwanda</a>
 </p>
 
 ---
 
 ## Le problème
 
-Beaucoup de clés LTE USB et d'adaptateurs Ethernet USB se « figent » après une mise en veille écran fermé : la LED reste allumée, l'interface est toujours présente dans le système, mais plus rien ne passe. **Seul un débranchement/rebranchement physique rétablit la connexion.**
+Beaucoup de clés LTE USB et d'adaptateurs Ethernet USB se « figent » après une mise en veille écran fermé : la LED reste allumée, l'interface est toujours présente dans le système, mais plus rien ne passe. **Il faut impérativement débrancher puis rebrancher** pour rétablir la connexion.
 
-En cause : macOS ne coupe pas l'alimentation USB pendant la veille (le VBUS est géré directement par le firmware SMC, sans API publique), alors que la session USB côté périphérique est déjà morte. Redémarrer le service réseau ne sert à rien — c'est la couche USB qu'il faut réinitialiser.
+En cause : pendant la veille, macOS ne coupe pas l'alimentation USB (le VBUS est géré directement par le firmware SMC et ne peut pas être coupé de façon logicielle), alors que la session USB côté périphérique est déjà perdue. Redémarrer le service réseau ne sert donc à rien : c'est la couche USB qu'il faut réinitialiser.
+
+## À qui cela s'adresse
+
+Dès lors qu'un Mac accède à Internet via un **adaptateur réseau USB externe**, le problème peut survenir :
+
+- 🚁 **Transmission vidéo de drone convertie en LTE** — par exemple la transmission DJI de première génération transformée en liaison cellulaire, avec une clé 4G/5G branchée sur le Mac en veille active pendant des heures
+- 📡 **Clés LTE / 4G / 5G USB, routeurs mobiles, modules cellulaires USB** — interventions en extérieur, embarqué en véhicule ou à bord, salons, bureaux temporaires
+- 🔌 **Adaptateurs USB-C / Thunderbolt vers Ethernet** — le Mac n'a pas de port réseau, et le câble est branché en salle de réunion, en salle serveur ou chez le client
+- 🧩 **Ports réseau intégrés aux stations d'accueil** — Belkin, Plugable, Anker, CalDigit, etc.
+- 🎥 **Diffusion en direct, streaming RTMP et exploitation à distance** qui exigent un débit montant stable
+- 🖥 **Routeurs logiciels / Raspberry Pi / équipements industriels** reliés directement au Mac par adaptateur réseau USB pour le débogage
+
+Le point commun : on ferme l'écran une fois, et au retour la connexion est perdue. La LED reste allumée, et **seul un débranchement/rebranchement rétablit la situation**.
+
+### Pas seulement les adaptateurs réseau
+
+Ce même phénomène — « figé après le réveil, seul le débranchement physique répare » — est très répandu sur d'autres périphériques USB. La [communauté officielle Apple](https://discussions.apple.com/thread/7745583), [MacRumors](https://forums.macrumors.com/threads/mac-mini-m1-usb-ports-not-working-after-wake-from-sleep.2326616/) et la [base de connaissances Plugable](https://kb.plugable.com/docking-stations-and-video/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos) en recensent d'innombrables cas : interfaces audio, webcams, disques externes, lecteurs de cartes et divers composants des stations d'accueil sont tous concernés.
+
+Le mécanisme sous-jacent étant identique, le menu de cet outil propose l'entrée **« Réinitialiser un périphérique USB »** : il liste tous les périphériques USB connectés ; il suffit d'en choisir un pour lui appliquer un débranchement logiciel, sans avoir à tendre la main vers le câble. En dehors des adaptateurs réseau, le déclenchement reste manuel (la détection automatique ne couvre que le réseau, car « ça passe ou ça ne passe pas » est un critère net, alors qu'il est très difficile de déterminer automatiquement si une webcam ou une interface audio est figée).
+
+> ⚠️ Avant d'utiliser cette fonction sur un périphérique de stockage tel qu'un disque externe, arrêtez les lectures/écritures et éjectez le volume, sous peine de corrompre vos données.
 
 ## Vous arrivez d'un moteur de recherche ?
 
-Ces formulations désignent toutes le même problème :
+Les formulations suivantes désignent presque toujours le même problème, et cet outil a été écrit exactement pour cela :
 
-> adaptateur ethernet USB ne fonctionne plus après veille Mac · MacBook perte réseau après mise en veille · adaptateur USB-C ethernet ne se réveille pas · port réseau du dock non détecté après veille · clé 4G déconnectée après veille macOS
+> Mac réseau ne fonctionne plus après la veille · adaptateur réseau USB déconnecté après fermeture de l'écran · adaptateur externe qu'il faut débrancher et rebrancher · adaptateur USB-C Ethernet inactif après la mise en veille · port réseau du dock non détecté au réveil · clé LTE déconnectée après fermeture du capot · clé 4G sans Internet après le réveil · la LED est allumée mais pas de réseau · l'interface est là mais le ping ne passe pas
 
-Les forums officiels d'Apple et MacRumors accumulent depuis des années des signalements identiques, sur Mac Intel comme Apple Silicon. Les conseils habituels (réinitialisation SMC/NVRAM) n'existent même plus sur Apple Silicon et ne traitent pas la cause. **Seul le débranchement fonctionne — c'est exactement ce que cet outil automatise.**
+Requêtes courantes en anglais (l'outil s'applique de la même façon) :
+
+> `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
+
+### À quel point ce problème est-il répandu ?
+
+Sur la communauté officielle Apple, MacRumors et la base de connaissances Plugable, les demandes d'aide de ce type s'étalent sur plusieurs années et concernent aussi bien les Mac Intel que les Mac Apple Silicon :
+
+- [Ethernet USB-C adapter doesn't wake up after sleep](https://forums.macrumors.com/threads/ethernet-usb-c-adapter-doesnt-wake-up-after-sleep.2220969/) — MacRumors
+- [Ethernet adapter doesn't want to wake up after sleep](https://discussions.apple.com/thread/8272273) — communauté officielle Apple
+- [MacBook Air 2020 USB LAN issue after sleep](https://discussions.apple.com/thread/255925525) — communauté officielle Apple
+- [Usb ethernet adapter is not working after sleep](https://discussions.apple.com/thread/7686532) · [Ethernet not waking after sleep](https://discussions.apple.com/thread/250166501) · [Ethernet reset/disconnect on wake-up](https://discussions.apple.com/thread/251074085) · [Ethernet disconnected after sleep](https://discussions.apple.com/thread/8425667)
+- [Devices are not detected after waking from sleep on macOS](https://kb.plugable.com/docking-stations-and-video/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos) — base de connaissances officielle Plugable
+
+### Pourquoi les « solutions officielles » habituelles ne règlent rien
+
+| Conseil fréquemment donné | Pourquoi il est inopérant ici |
+|---|---|
+| Réinitialiser le SMC / la NVRAM | Sur les modèles Apple Silicon, **la réinitialisation du SMC n'existe tout simplement pas** ; et même effectuée sur un Mac Intel, le problème réapparaît à la fermeture suivante — ce n'est pas de cette maladie-là qu'il s'agit |
+| Désactiver « Réactiver pour l'accès au réseau » (Wake for network access) | Ce réglage concerne le réveil par le réseau pendant la veille, ce qui n'a rien à voir avec la perte de la session USB au réveil |
+| Éteindre complètement et redémarrer / mettre à jour le système | Efficace mais absurde : faut-il redémarrer l'ordinateur après chaque fermeture d'écran ? |
+| Débrancher le câble réseau plutôt que l'adaptateur | Recommandé à répétition sur les forums, sans effet dans les faits (l'auteur du fil d'origine, textuellement : « je l'ai essayé aussi, ça ne marche pas ») |
+| **Débrancher l'adaptateur USB puis le rebrancher** | La seule méthode réellement fiable — **et c'est précisément ce que cet outil automatise de façon logicielle** |
 
 ## La solution
 
-LTE Guard réside dans la barre des menus et écoute les événements de réveil. Au réveil, il teste l'adaptateur choisi : si la passerelle ne répond pas, il effectue via IOKit un **débranchement logiciel (USBDeviceReEnumerate)**, équivalent au geste physique. La connexion revient **en 8 secondes environ**.
+LTE Guard est un gardien qui réside dans la barre des menus : il écoute les événements de réveil du système et vérifie automatiquement l'adaptateur ciblé au retour de veille. Si la passerelle ne répond pas au ping, il effectue via IOKit un **débranchement logiciel (USBDeviceReEnumerate)** sur le périphérique USB concerné, équivalent au geste manuel, ce qui rétablit la connexion **en 8 secondes environ**.
 
-- 🎯 **Indépendant de la marque** — VID/PID détectés automatiquement, aucune liste de périphériques
+- 🎯 **Indépendant de la marque** — les VID/PID sont détectés automatiquement une fois l'adaptateur sélectionné, aucune liste de périphériques n'est embarquée
 - 🔌 **Fonctionne aussi hors USB** — bascule automatiquement sur le redémarrage du service réseau
-- 🛠 **Commande après récupération** — redémarrer un proxy, relancer une connexion…
-- 🌍 **62 langues** — suit la langue du système, modifiable depuis le menu
-- 🪶 **Zéro dépendance** — une seule app, aucun démon, pas de Homebrew
+- 🛠 **Commande complémentaire possible** — une commande personnalisée est exécutée automatiquement après la récupération (reconnexion d'un proxy, nouvelle numérotation, etc.)
+- 🌍 **62 langues** — suit automatiquement la langue du système, et se change aussi manuellement depuis le menu
+- 🪶 **Zéro dépendance** — une seule application, aucun démon à installer, pas besoin de Homebrew
 
 ## Installation
 
-Téléchargez le `.dmg` depuis les [Releases](../../releases) et glissez-le dans Applications.
+**Méthode 1 : télécharger le paquet d'installation** ([Releases](../../releases))
 
-Si macOS indique que le développeur ne peut pas être vérifié (normal pour une app non signée) : **clic droit sur l'app → Ouvrir → Ouvrir**, ou dans le Terminal :
+- `LTEGuard-x.y.z.dmg` — à glisser dans Applications
+- `LTEGuard-x.y.z.pkg` — double-cliquez pour installer, le lancement au démarrage est configuré automatiquement
+
+Si macOS indique au premier lancement que le développeur ne peut pas être vérifié (message normal pour une app non signée) : **clic droit sur l'app → Ouvrir → Ouvrir**, ou dans le Terminal
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 ```
 
+**Méthode 2 : compiler soi-même** (les outils en ligne de commande Xcode sont requis)
+
+```bash
+git clone https://github.com/oceantangqoit/Mac-lte-guard.git
+cd Mac-lte-guard && ./build.sh
+```
+
+Le résultat se trouve dans `dist/`. Le rendu de l'icône nécessite `brew install librsvg` ; sans cette bibliothèque la compilation aboutit quand même (l'app utilise alors l'icône par défaut).
+
+## Première utilisation
+
+Au premier lancement après l'installation, un assistant vous guide : **explication → sélection de l'adaptateur à surveiller → question sur le lancement au démarrage**. Il suffit de suivre les étapes.
+
+En cas de souci, commencez par **Lancer le diagnostic** dans le menu : il vérifie chaque point et vous indique directement la marche à suivre.
+
+| Point vérifié | Signification et remède en cas de problème |
+|---|---|
+| Emplacement d'installation | Si `/Volumes/…` s'affiche, vous exécutez l'app directement depuis le DMG — glissez-la d'abord dans Applications |
+| Attribut de quarantaine (Gatekeeper) | Marquage normal pour une app non signée. Si elle ne s'ouvre pas : **clic droit sur l'app → Ouvrir → Ouvrir**, ou `xattr -dr com.apple.quarantine /Applications/LTEGuard.app` |
+| Outil de réparation | Indique si usbreset est disponible ; il est normalement installé avec l'app, aucune installation séparée n'est nécessaire |
+| Cible surveillée | Un adaptateur a-t-il été sélectionné, et l'interface existe-t-elle réellement (un changement d'adaptateur déclenche un avertissement) |
+| Lancement au démarrage | Si l'option est désactivée, l'app ne se lance pas après un redémarrage ; elle s'active en un clic depuis le menu |
+
+**À propos des autorisations** : cet outil **ne demande aucune élévation de privilèges** — ni accessibilité, ni accès au disque, ni root, et il n'installe aucun démon en arrière-plan.
+
 ## Utilisation
 
-1. Une icône apparaît dans la barre des menus
-2. Menu → **Choisir la cible…** → sélectionnez votre adaptateur (ceux marqués `· USB` acceptent le replug logiciel)
-3. C'est tout : après chaque fermeture d'écran, la réparation est automatique
+1. Une icône de signal apparaît dans la barre des menus après le lancement
+2. Ouvrez le menu → **Choisir la cible à soigner…** → sélectionnez votre adaptateur (les entrées marquées `· USB` acceptent le débranchement logiciel)
+3. C'est tout. Ensuite, à chaque fermeture puis réouverture de l'écran, une coupure est réparée automatiquement
 
-En cas de souci, utilisez **Lancer le diagnostic** dans le menu.
+Les autres entrées du menu :
 
----
+| Entrée | Rôle |
+|---|---|
+| Vérifier et réparer maintenant | Déclenche une exécution manuelle |
+| Afficher le journal | Ouvre `~/.lte-wake.log` |
+| Lancement au démarrage | Interrupteur modifiable à tout moment (disponible aussi après une installation par DMG) |
+| Lancer le diagnostic | Auto-vérification point par point avec les remèdes correspondants |
+| Commande après récupération… | Hook facultatif : exécute automatiquement une commande shell après la récupération de l'adaptateur (laisser vide pour ne rien faire) |
+| Réinitialiser un périphérique USB | Liste tous les périphériques USB, débranchement logiciel en un clic — également valable pour les interfaces audio, webcams, disques et stations d'accueil |
+| Icône de la barre des menus | Toujours afficher / afficher seulement en cas d'anomalie / masquer (**une fois masquée, rouvrez l'app depuis Applications pour la retrouver**) |
+| Ouvrir le dossier de configuration | Ouvre en un clic la configuration, le journal et le dossier des langues dans le Finder |
+| Langue | Bascule entre 62 langues ; le sous-menu permet de modifier la langue courante ou d'ouvrir le dossier des langues |
 
-## À propos de l'auteur
+## Langues écrites de droite à gauche (RTL)
 
-**Ocean Tang (唐海洋)** — avocat à Shenzhen, en Chine (dans la profession depuis 2011, inscrit depuis 2012). Contentieux commercial et arbitrage, défense pénale, droit du travail, conseil juridique permanent ; plus de 500 dossiers traités.
+Quatre langues écrites de droite à gauche sont incluses : **العربية** (arabe), **עברית** (hébreu), **فارسی** (persan) et **اردو** (ourdou).
 
-CCNA en 2002, CIW Security Analyst en 2003, et des années à écrire ses propres outils de gestion de dossiers en VBA + Excel. Cette application a une origine tout aussi concrète : il a converti un émetteur vidéo DJI de première génération en liaison LTE pour s'en servir comme modem 4G — et devait débrancher puis rebrancher la clé après chaque fermeture d'écran avant que le réseau ne revienne. Excédé, il l'a écrite avec Claude.
+Comme le changement de langue de cet outil est implémenté au sein de l'application elle-même (lecture de `lang/*.ini`) et ne passe pas par le mécanisme de localisation `.lproj` de macOS, le système ne met pas l'interface en miroir automatiquement. Deux niveaux de traitement ont donc été prévus :
 
-Documentation complète (matrice de compatibilité, fichier de configuration, contribuer une traduction) : [English README](README.en.md).
+1. **Mise en miroir de l'interface** — lors du passage à une langue RTL, le menu et les sous-menus sont réglés sur `.rightToLeft` : texte aligné à droite, icônes déplacées à droite, flèches de sous-menu inversées ;
+2. **Isolation du texte bidirectionnel** — les valeurs insérées dans les textes (nom d'interface `en2`, `2c7c:0125`, noms de services, etc.) sont composées de lettres latines et de chiffres. Intégrées telles quelles dans une phrase arabe, elles sont réordonnées par l'algorithme bidirectionnel Unicode et **les deux-points et les parenthèses se retrouvent du mauvais côté**. Chaque substitution d'espace réservé est donc encadrée par `U+2068 FSI` / `U+2069 PDI` (pratique recommandée par le W3C en i18n), afin que chaque valeur insérée forme une unité directionnelle indépendante.
+3. Le champ de saisie « Commande après récupération » est forcé à l'alignement à gauche : une commande shell est toujours en caractères latins, et l'alignement à droite la rendrait moins lisible.
 
-## License
+## Multilingue
+
+**62 langues** sont incluses ; la langue du système est choisie automatiquement au démarrage, et le menu « Langue » permet de changer manuellement (le choix est mémorisé).
+
+Les langues ajoutées ultérieurement ont été traduites avec l'aide de l'IA et n'ont pas encore été relues par des locuteurs natifs ; une mention figure en tête de fichier. **Si une formulation vous semble maladroite, n'hésitez pas à corriger une ligne et à proposer une pull request** — c'est la façon la plus simple de contribuer.
+
+**Modifier la formulation d'une langue existante** : le menu « Langue → Modifier la langue actuelle… » **copie le fichier ini de la langue courante depuis l'app vers votre dossier de langues et l'ouvre directement**. Redémarrez l'app pour appliquer vos modifications. Cette copie est prioritaire sur la version intégrée et **ne sera pas écrasée lors d'une mise à jour de l'app**.
+
+À l'export, un message s'affiche et une opération est effectuée : **le nom et les coordonnées de l'auteur d'origine sont supprimés et remplacés par le vôtre**. Autrement dit, dès l'instant de l'export, cette copie devient votre propre fichier : vous en assumez le contenu, qui n'engage en rien l'auteur d'origine — n'y écrivez rien d'illégal, d'offensant ou qui porte atteinte aux droits d'autrui. Le fichier reste uniquement sur votre ordinateur et n'est jamais envoyé automatiquement.
+
+**Ajouter une nouvelle langue** : menu « Langue → Ouvrir le dossier des langues… » (les deux modèles `zhs.template.ini` en chinois simplifié et `en.template.ini` en anglais y sont déposés automatiquement). Copiez l'un d'eux, renommez-le avec le code de la langue cible (par exemple `nl.ini`) et traduisez la partie située à droite du signe égal.
+
+L'ordre de recherche des fichiers de langue est le suivant : **votre dossier de langues → fichiers intégrés à l'app** ; à nom identique, votre version l'emporte. N'hésitez pas à proposer vos fichiers en pull request, afin que tous les utilisateurs de la même langue en profitent.
+
+**Format des fichiers de langue** : un fichier INI par langue, placé dans le répertoire `lang/`, avec des codes numériques comme clés :
+
+```ini
+[meta]
+name=Français
+author=……
+
+[strings]
+1=LTE Guard
+2=Surveillance : {0}  {1}
+3=● Normal
+```
+
+`{0}` et `{1}` sont des espaces réservés remplis par le programme.
+
+## Fichier de configuration
+
+`~/.lte-guard.conf` (maintenu automatiquement par l'app, modifiable à la main) :
+
+```sh
+DEV="en2"              # Interface réseau
+SERVICE="My LTE"       # Nom du service réseau (utilisé pour redémarrer le service sur un périphérique non USB)
+USB_VID="2c7c"         # Identifiant de fabricant USB ; laisser vide pour basculer sur le redémarrage du service
+USB_PID="0125"         # Identifiant de produit USB
+POST_CMD=''            # Commande exécutée après la récupération, par exemple le redémarrage d'un proxy
+```
+
+Exemple de `POST_CMD` — redémarrer après récupération un proxy gost lié à cet adaptateur :
+
+```sh
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte'
+```
+
+## Fonctionnement
+
+```
+Réveil du système (IORegisterForSystemPower)
+      ↓  attente de 5 s pour laisser l'interface se stabiliser
+ping de la passerelle, double vérification  → répond → fin
+      ↓ ne répond pas
+USBDeviceReEnumerate      → si ce n'est pas de l'USB : redémarrage du service via networksetup
+      ↓  attente par scrutation de l'obtention d'une IP (60 s maximum)
+Exécution de POST_CMD → écriture du journal → mise à jour de l'icône de la barre des menus
+```
+
+Avec 90 secondes de temporisation, pour éviter les oscillations à répétition.
+
+## Compatibilité et état des tests
+
+### Vérifié en conditions réelles
+
+| Élément | Environnement |
+|---|---|
+| Modèle | MacBook (Apple Silicon, arm64) |
+| Système | macOS 26 (Darwin 25.x) |
+| Adaptateur | Quectel EC25 (VID `2c7c` / PID `0125`), présenté comme `enX` en mode ECM/NCM |
+| Scénario | Veille écran fermé → au réveil l'interface est présente mais la passerelle est injoignable → après le débranchement logiciel, **récupération en 8 secondes environ**, reproductible plusieurs fois de suite |
+| En complément | Le processus proxy lié à cet adaptateur est redémarré automatiquement après la récupération (`POST_CMD`) |
+
+### Devrait fonctionner sur le principe, mais sans retour de terrain à ce jour
+
+| Cas | Prévision et ajustements éventuels |
+|---|---|
+| **Mac Intel** | Sur certains modèles Intel, `USBDeviceReEnumerate` exige les droits root et le journal affiche `open failed … try sudo`. Remède : exécuter une fois avec `sudo` pour confirmer, ou basculer sur « redémarrer le service réseau » (il suffit de laisser `USB_VID` vide dans la configuration) |
+| **macOS 13 / 14 / 15** | Les API utilisées (notifications d'alimentation IOKit, `USBDeviceReEnumerate`, `NSStatusItem.isVisible`) sont toutes des interfaces stables depuis la version 13 : fonctionnement attendu normal. En dessous de 13, l'app ne se lance pas (limite fixée dans Info.plist) |
+| **Adaptateurs USB vers Ethernet** (AX88179, RTL8153, CM3xx, etc.) | Même principe, cela devrait fonctionner. Attention : sur certains adaptateurs, le nom de l'interface change après la réénumération (`en5`→`en6`) ; il suffit alors de refaire une fois « Choisir la cible à soigner » dans le menu |
+| **Modules 4G à numérotation** (non ECM/NCM, en PPP/AT) | Après la réénumération, une nouvelle numérotation est nécessaire pour obtenir une IP, faute de quoi un échec est constaté au bout de 60 secondes d'attente. Remède : saisir votre commande de numérotation/reconnexion dans « Commande après récupération » |
+| **Port réseau d'une station d'accueil** | Lorsque la réénumération porte sur le périphérique USB de toute la station, les autres appareils qui y sont reliés (disques externes, webcams) sont réinitialisés au passage. Si un disque en cours d'écriture est branché sur la station, préférez la méthode « redémarrer le service réseau » |
+| **Périphériques composites** (adaptateur réseau + lecteur de cartes + port série réunis) | Idem : la réinitialisation affecte aussi les autres fonctions du même périphérique USB |
+| **Partage de connexion USB d'un iPhone** | Il s'agit d'un périphérique NCM maison d'Apple, généralement rétabli par le système lui-même ; en cas de problème identique, cet outil s'applique tout aussi bien sur le principe |
+| **Interfaces non USB : Wi-Fi, port Thunderbolt, etc.** | Bascule automatique sur « redémarrer le service réseau ». Cela résout les blocages logiciels, mais pas un gel au niveau du pilote |
+
+Si votre appareil ne figure pas dans le tableau ci-dessus, **n'hésitez pas à ouvrir une Issue pour m'indiquer votre résultat** (modèle, `USB VID:PID`, extrait de `~/.lte-wake.log`), qu'il s'agisse d'un succès ou d'un échec — c'est le retour dont le projet a le plus besoin aujourd'hui.
+
+## Pourquoi il n'y a pas de « maintenir la connexion pendant la veille »
+
+Les premières versions comportaient cet interrupteur ; il a été retiré après avoir été jugé inopérant à l'usage. Les raisons méritent d'être écrites, pour éviter à d'autres de refaire le chemin :
+
+- **`caffeinate -i -s` n'empêche pas la veille écran fermé.** `man caffeinate` indique explicitement que l'assertion `-s` *« is valid only when system is running on AC power »*, et ce qu'elle empêche, c'est la **veille par inactivité** ; **la veille écran fermé (Clamshell Sleep) suit un chemin de déclenchement indépendant**, que l'on soit branché sur secteur ou non (sauf si un écran externe fait passer le Mac en mode clamshell). Dans les journaux de test, caffeinate tournait en permanence et le système enregistrait quand même `Entering Sleep state due to 'Clamshell Sleep'`.
+- **La seule chose qui l'empêche vraiment est `sudo pmset -a disablesleep 1`** (l'approche d'outils comme Amphetamine ou InsomniaX), mais cela exige une élévation en root ; et un écran fermé sans veille signifie un processeur qui continue de tourner — **un portable fermé qui ne dort pas au fond d'un sac chauffe réellement**.
+- Après arbitrage : cet outil se concentre sur une seule chose, bien faite — « l'auto-réparation en 8 secondes au réveil » — et n'élargit pas la surface d'attaque pour un cas de figure marginal qui réclamerait une élévation de privilèges et comporterait un risque matériel.
+
+**Vous avez réellement besoin de rester connecté écran fermé** (téléchargements en cours, diffusion sans surveillance, maintien de sessions distantes) ? Nous recommandons l'association avec [Amphetamine](https://apps.apple.com/app/amphetamine/id937984704) (gratuit, disponible sur l'App Store) : à lui d'empêcher la machine de dormir, à cet outil de réparer automatiquement en cas de coupure. Chacun son rôle.
+
+## Limites connues
+
+- **Couper réellement l'alimentation USB est impossible** — sur Apple Silicon, le VBUS est contrôlé par le firmware SMC et aucune API publique n'existe. Pour une coupure physique, il faut un hub USB externe prenant en charge le PPPS, associé à [uhubctl](https://github.com/mvp/uhubctl).
+- Sur **Mac Intel**, `USBDeviceReEnumerate` réclame parfois les droits root ; le journal affiche alors `try sudo`.
+- Les **clés à numérotation** (non ECM/NCM) peuvent nécessiter une nouvelle numérotation après la réénumération : complétez avec `POST_CMD`.
+- L'app n'est pas notariée par Apple ; au premier lancement, il faut passer par clic droit → Ouvrir.
+
+## Désinstallation
+
+```bash
+launchctl bootout gui/$(id -u)/com.oceantang.lteguard
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -rf /Applications/LTEGuard.app
+```
+
+## Soutenir le projet
+
+Si ce petit outil vous épargne les débranchements USB à répétition :
+
+- ⭐ Mettez une étoile au dépôt, ou recommandez-le à ceux que le même problème embête
+- 🐛 Ouvrez une Issue avec le modèle de votre appareil et vos journaux, pour aider à couvrir davantage d'adaptateurs
+- 🌍 Contribuez une traduction ([CONTRIBUTING.md](CONTRIBUTING.md), quelques lignes d'INI suffisent)
+- ☕ Offrez un café à l'auteur
+
+Détails dans [Soutenir le projet](SPONSOR.md).
+
+## Échanges et contact
+
+- 💬 Questions d'utilisation et échanges d'idées : [Discussions](../../discussions)
+- 🐛 Bugs et suggestions de fonctionnalités : [Issues](../../issues)
+
+### À propos de l'auteur
+
+**Tang Haiyang (Ocean Tang)**, avocat inscrit au cabinet Beijing Dongyuan (Shenzhen), entré dans la profession en 2011 et en exercice depuis 2012.
+
+- **Domaines d'intervention** : contentieux commercial et arbitrage, défense pénale et représentation des victimes en matière pénale, litiges du travail, conseil juridique permanent aux entreprises, due diligence
+- **Expérience** : plus de 500 dossiers contentieux et non contentieux traités, conseil juridique permanent de plusieurs organisations
+
+**Pourquoi un avocat écrit-il une application ?** J'ai passé le CCNA dès 2002 et le CIW Security Analyst en 2003, avant d'être diplômé de l'Université de technologie de Wuhan en 2005. J'ai toujours écrit mes propres outils de gestion de dossiers en VBA + Excel (suivi des affaires, génération de documents types, extraction OCR, envoi automatique d'e-mails). L'origine de cette application est tout aussi concrète : j'avais converti pour le plaisir la transmission vidéo DJI de première génération en liaison LTE afin de m'en servir comme clé 4G, et il me fallait débrancher puis rebrancher le module après chaque fermeture et réouverture de l'écran avant de retrouver Internet. Excédé, j'ai fini par écrire cette application avec Claude.
+
+Que ce soit sur des sujets juridiques ou techniques, n'hésitez pas à passer par les [Discussions](../../discussions) ou à ouvrir une Issue.
+
+## Licence
 
 MIT License

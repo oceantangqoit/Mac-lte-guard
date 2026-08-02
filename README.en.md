@@ -235,6 +235,19 @@ An early version shipped that toggle. It was removed after testing showed it sim
 
 If your hardware is not in the table, **please open an issue with the result** (model, `USB VID:PID`, a snippet of `~/.lte-wake.log`) — success or failure. That is the most useful contribution right now.
 
+## What this tool cannot fix
+
+Apple has still not fixed the underlying problem — an [October 2025 Tahoe report](https://discussions.apple.com/thread/256157526) collected 26 "me too" votes and a feedback ticket with no resolution, and people were [still reporting it on 26.5.1 in 2026](https://discussions.apple.com/thread/256306656). But precisely because there is more than one root cause, this tool only covers one class of them, and the boundary is worth stating plainly:
+
+| Situation | Can this tool help? |
+|---|---|
+| Device still present in the system, USB session dead (the most common case, and the author's own adapter) | ✅ Yes — re-enumeration usually restores it in about 8 seconds |
+| The whole USB port stops working (reported on Tahoe) | ❌ No. The port itself is gone; software cannot reach it, only a reboot will |
+| Driver-level crash or incompatibility (e.g. how some AX88179 adapters behave on macOS 26) | ⚠️ Maybe. Re-enumeration can trigger a driver reload, or may do nothing |
+| An entire dock drops off | ⚠️ It can reset the dock, but that resets everything else attached to it — not advisable while a drive is being written to |
+
+A simple rule of thumb: **if unplugging and replugging by hand brings it back, this tool can do that for you automatically; if even a replug does not help and only a reboot does, this tool will not help either.**
+
 ## Known limitations
 
 - **Actually cutting USB power is not possible** — VBUS on Apple Silicon is controlled by SMC firmware with no public API. For real power cycling, use an external hub with per-port power switching (PPPS) plus [uhubctl](https://github.com/mvp/uhubctl).
