@@ -836,16 +836,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Healer.shared.checkAndHeal(reason: "manual")
     }
 
-    /// 编辑当前语言：从 App 内置复制一份到用户目录（同名文件优先级更高），
-    /// 再用默认文本编辑器打开。改完重启 App 即生效，升级也不会被覆盖。
+    /// 编辑当前语言：从 App 内置复制一份到用户目录（同名文件优先级更高）。
+    /// 导出的副本会**移除原作者署名并改为当前使用者**——此后该文件的内容
+    /// 由使用者自己负责，与原作者无关。改完重启 App 即生效。
     @objc func editCurrentLang() {
         I18n.prepareUserLangDir()
         let code = I18n.shared.code
         let fm = FileManager.default
         let dst = I18n.userLangDir + "/\(code).ini"
+
         if !fm.fileExists(atPath: dst), let r = Bundle.main.resourcePath {
-            try? fm.copyItem(atPath: r + "/lang/\(code).ini", toPath: dst)
+            // 先给出责任移交提示，用户确认后才导出
+            let a = NSAlert()
+            a.messageText = T(73)
+            a.informativeText = I18n.shared.paragraph(T(74))
+            a.alertStyle = .informational
+            a.addButton(withTitle: T(17))
+            a.addButton(withTitle: T(18))
+            NSApp.activate(ignoringOtherApps: true)
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+
+            guard var text = try? String(contentsOfFile: r + "/lang/\(code).ini", encoding: .utf8)
+            else { NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir)); return }
+
+            // 移除原作者署名与联系方式，改为当前使用者
+            let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+            var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            for (i, l) in lines.enumerated() {
+                if l.hasPrefix("author=") {
+                    lines[i] = "author=\(who)"
+                } else if l.hasPrefix("64=") {          // 关于中的作者署名
+                    lines[i] = "64=\(who)"
+                } else if l.hasPrefix("65=") || l.hasPrefix("66=") {   // 邮箱与城市
+                    lines[i] = String(l.prefix(3))
+                }
+            }
+            text = lines.joined(separator: "\n")
+
+            // 文件头写明责任归属，避免日后混淆
+            let banner = """
+            # ⚠️ 本文件已由使用者导出并可自由修改。
+            #    原作者署名已移除，本文件内容由 \(who) 负责，与原作者无关。
+            #    This file was exported for local editing. The original author's
+            #    credit has been removed; \(who) is responsible for its contents.
+            #
+
+            """
+            text = banner + text
+            try? text.write(toFile: dst, atomically: true, encoding: .utf8)
         }
+
         guard fm.fileExists(atPath: dst) else {
             NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir)); return
         }
