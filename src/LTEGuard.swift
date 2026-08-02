@@ -169,8 +169,15 @@ final class I18n {
             }
         }
         // 排序：汉语及其方言 → 中国少数民族语言 → 其他（按代码）
-        let priority = ["zh-Hans", "zh-Hant", "yue", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
-                        "bo", "ug", "mn-Mong", "ko", "kk"]
+        let priority = [
+            // 汉语及其方言
+            "zh-Hans", "zh-Hant", "yue", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
+            // 中国少数民族语言
+            "bo", "ug", "mn-Mong", "kk",
+            // 邻近与友好国家
+            "ja", "ko", "vi", "th", "km", "my", "ms", "id", "fil",
+            "ru", "kk", "uz", "az", "sr", "rw", "sw", "am", "ha",
+        ]
         func rank(_ c: String) -> Int { priority.firstIndex(of: c) ?? priority.count }
         return found.sorted {
             let (a, b) = (rank($0.key), rank($1.key))
