@@ -465,8 +465,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
     private var statusItem: NSStatusItem!
     private let watcher = WakeWatcher()
-    private var caffeinate: Process?
-    private var keepAwake = false
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -478,10 +476,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.delegate = delegate
         app.setActivationPolicy(.accessory)   // 不在 Dock 显示
         app.run()
-    }
-
-    func applicationWillTerminate(_ n: Notification) {
-        caffeinate?.terminate()
     }
 
     /// 用户在 App 已运行时再次打开它 —— 用于找回被隐藏的图标
@@ -539,12 +533,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forceShowUntil = nil
             switch IconMode.current {
             case .hidden:      statusItem.isVisible = false
-            case .problemOnly: statusItem.isVisible = !healthy || keepAwake
+            case .problemOnly: statusItem.isVisible = !healthy
             case .always:      statusItem.isVisible = true
             }
         }
-        let name = keepAwake ? "bolt.horizontal.circle.fill"
-                             : (healthy ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
+        let name = healthy ? "antenna.radiowaves.left.and.right"
+                           : "antenna.radiowaves.left.and.right.slash"
         var img = NSImage(systemSymbolName: name, accessibilityDescription: "LTE Guard")
         if img == nil {   // 旧系统缺该符号时回退
             img = NSImage(systemSymbolName: healthy ? "wifi" : "wifi.slash", accessibilityDescription: "LTE Guard")
@@ -584,10 +578,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(method)
         m.addItem(.separator())
 
-        m.addItem(item(T(8), #selector(toggleKeep),
-                       state: keepAwake ? .on : .off, symbol: "bolt.fill"))
-        m.addItem(item(T(9), #selector(toggleNormal),
-                       state: keepAwake ? .off : .on, symbol: "moon.zzz.fill"))
         m.addItem(.separator())
         m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
         m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
@@ -631,29 +621,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: 动作
-
-    @objc func toggleKeep() {
-        guard !keepAwake else { return }
-        let p = Process()
-        p.launchPath = "/usr/bin/caffeinate"
-        p.arguments = ["-i", "-s"]
-        try? p.run()
-        caffeinate = p
-        keepAwake = true
-        Sys.run("sudo -n /usr/bin/pmset -b disablesleep 1 2>/dev/null")
-        Sys.log("mode=keep")
-        notify(T(19))
-        refreshIcon()
-    }
-
-    @objc func toggleNormal() {
-        caffeinate?.terminate(); caffeinate = nil
-        keepAwake = false
-        Sys.run("sudo -n /usr/bin/pmset -b disablesleep 0 2>/dev/null")
-        Sys.log("mode=normal")
-        notify(T(20))
-        refreshIcon()
-    }
 
     @objc func pickTarget() {
         let services = Sys.networkServices()
@@ -793,7 +760,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func quit() {
-        caffeinate?.terminate()
         NSApp.terminate(nil)
     }
 
