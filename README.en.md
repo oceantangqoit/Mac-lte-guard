@@ -54,6 +54,22 @@ cd Mac-lte-guard && ./build.sh
 
 Artifacts land in `dist/`. Icon rendering needs `brew install librsvg`; without it the build still succeeds (default icon).
 
+## First run
+
+The first launch walks you through: **what it does → pick the adapter to guard → offer to launch at login**.
+
+If anything looks off, use **Run diagnostics** in the menu — it checks each item and tells you the fix:
+
+| Check | What a problem means |
+|---|---|
+| Location | If it shows `/Volumes/…` you are running it straight from the DMG — drag the app into Applications first |
+| Quarantine (Gatekeeper) | Normal for unsigned apps. If it won't open: **right-click → Open → Open**, or `xattr -dr com.apple.quarantine /Applications/LTEGuard.app` |
+| Repair tool | Whether `usbreset` is available; it ships inside the app, nothing to install separately |
+| Target | Whether an adapter is selected and its interface actually exists (warns if you swapped adapters) |
+| Launch at login | When off, it won't start after a reboot — toggle it from the menu |
+
+**Permissions**: no Accessibility, Full Disk Access or root required. Only the optional *keep online with the lid closed* needs a one-time passwordless `pmset` rule (see below); everything else works without it.
+
 ## Usage
 
 1. A signal icon appears in the menu bar
@@ -68,6 +84,11 @@ Other menu items:
 | Normal sleep (heal on wake) | Default mode |
 | Check and repair now | Trigger a check manually |
 | Open log | Opens `~/.lte-wake.log` |
+| Launch at login | Toggle any time (works for DMG installs too) |
+| Run diagnostics | Self-check with concrete fixes |
+| Command after recovery… | Optional hook: run a shell command once the adapter is back (empty = do nothing) |
+| Menu bar icon | Always show / only when there is a problem / hidden |
+| Language | Switch among 16 languages |
 
 **Optional** — to make *Keep online* work with the lid closed as well, grant passwordless `pmset` once:
 
@@ -141,6 +162,20 @@ launchctl bootout gui/$(id -u)/com.oceantang.lteguard
 rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
 rm -rf /Applications/LTEGuard.app
 ```
+
+## Support the project
+
+If this saved you from replugging USB over and over:
+
+- ⭐ Star the repo, or pass it on to someone with the same problem
+- 🐛 Open an issue with your adapter model and log so more devices get covered
+- 🌍 Contribute a translation ([CONTRIBUTING.md](CONTRIBUTING.md) — it's a few lines of INI)
+- ☕ Buy me a coffee
+
+## Contact
+
+Author: Ocean Tang — practising lawyer, writes small tools for himself on the side.
+Feedback and ideas welcome in [Issues](../../issues).
 
 ## License
 

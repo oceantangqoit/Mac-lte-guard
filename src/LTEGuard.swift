@@ -45,7 +45,7 @@ struct Config {
         SERVICE="\(service)"
         USB_VID="\(usbVID)"
         USB_PID="\(usbPID)"
-        POST_CMD='\(postCmd)'
+        POST_CMD='\(postCmd.replacingOccurrences(of: "'", with: "'\\\\''"))'
 
         """
         try? text.write(toFile: Config.path, atomically: true, encoding: .utf8)
@@ -75,6 +75,15 @@ enum Sys {
     }
 
     static var logPath: String { NSHomeDirectory() + "/.lte-wake.log" }
+
+    /// usbreset 可执行文件：优先 App 内置资源，回退用户目录（兼容早期手工安装）
+    static var usbresetPath: String {
+        if let r = Bundle.main.resourcePath {
+            let bundled = r + "/usbreset"
+            if FileManager.default.isExecutableFile(atPath: bundled) { return bundled }
+        }
+        return NSHomeDirectory() + "/.local/bin/usbreset"
+    }
 
     static func log(_ msg: String) {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -250,6 +259,30 @@ func T(_ id: Int, _ args: CVarArg...) -> String {
 
 // MARK: - 自愈
 
+/// 健康状态缓存：菜单渲染读缓存，实际探测在后台线程
+final class HealthCache {
+    static let shared = HealthCache()
+    private(set) var healthy = true
+    private var lastCheck = Date.distantPast
+
+    func value(for dev: String) -> Bool {
+        if Date().timeIntervalSince(lastCheck) > 20 { refresh(dev) }
+        return healthy
+    }
+
+    func refresh(_ dev: String) {
+        DispatchQueue.global(qos: .utility).async {
+            let h = Sys.interfaceHealthy(dev)
+            DispatchQueue.main.async {
+                let changed = (h != self.healthy)
+                self.healthy = h
+                self.lastCheck = Date()
+                if changed { AppDelegate.shared?.refreshIcon() }
+            }
+        }
+    }
+}
+
 final class Healer {
     static let shared = Healer()
     private var lastHeal = Date.distantPast
@@ -266,7 +299,7 @@ final class Healer {
 
             if !cfg.usbVID.isEmpty {
                 Sys.log("[\(reason)] \(cfg.dev) unhealthy, usb re-enumerate (\(cfg.usbVID):\(cfg.usbPID))...")
-                let tool = NSHomeDirectory() + "/.local/bin/usbreset"
+                let tool = Sys.usbresetPath
                 let out = Sys.run("'\(tool)' \(cfg.usbVID) \(cfg.usbPID) 2>&1")
                 Sys.log(out)
             } else if !cfg.service.isEmpty {
@@ -289,6 +322,95 @@ final class Healer {
             }
             Sys.log("\(cfg.dev) NOT recovered")
         }
+    }
+}
+
+// MARK: - 开机自启
+
+/// 菜单栏图标显示模式
+enum IconMode: Int {
+    case always = 0, problemOnly = 1, hidden = 2
+    static var current: IconMode {
+        get { IconMode(rawValue: UserDefaults.standard.integer(forKey: "iconMode")) ?? .always }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "iconMode") }
+    }
+}
+
+enum LaunchAtLogin {
+    static let label = "com.oceantang.lteguard"
+    static var plistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist" }
+
+    static var isEnabled: Bool {
+        guard FileManager.default.fileExists(atPath: plistPath),
+              let t = try? String(contentsOfFile: plistPath, encoding: .utf8) else { return false }
+        return t.contains(Bundle.main.bundlePath)   // 指向当前这份 App 才算已启用
+    }
+
+    static func set(_ on: Bool) {
+        let uid = getuid()
+        let dir = NSHomeDirectory() + "/Library/LaunchAgents"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        Sys.run("launchctl bootout gui/\(uid)/\(label) 2>/dev/null")
+        guard on else { try? FileManager.default.removeItem(atPath: plistPath); return }
+        let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
+            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict>
+        <key>Label</key><string>\(label)</string>
+        <key>ProgramArguments</key><array><string>\(exe)</string></array>
+        <key>RunAtLoad</key><true/>
+        <key>KeepAlive</key><true/>
+        </dict></plist>
+        """
+        try? plist.write(toFile: plistPath, atomically: true, encoding: .utf8)
+        Sys.run("launchctl bootstrap gui/\(uid) '\(plistPath)' 2>/dev/null")
+    }
+}
+
+// MARK: - 自诊断
+
+struct Diagnosis {
+    var lines: [String] = []
+    var problems: [String] = []
+
+    static func run() -> Diagnosis {
+        var d = Diagnosis()
+        let cfg = Config.load()
+        let fm = FileManager.default
+
+        // 1 安装位置
+        let path = Bundle.main.bundlePath
+        d.lines.append("\(T(31)): \(path)")
+        if path.contains("/Volumes/") { d.problems.append(T(38)) }
+
+        // 2 隔离属性（Gatekeeper）
+        let qtn = Sys.run("xattr -p com.apple.quarantine '\(path)' 2>/dev/null")
+        d.lines.append("\(T(32)): \(qtn.isEmpty ? T(35) : T(36))")
+
+        // 3 usbreset 工具
+        let tool = Sys.usbresetPath
+        let ok = fm.isExecutableFile(atPath: tool)
+        d.lines.append("\(T(33)): \(ok ? T(35) : T(36))  \(tool)")
+        if !ok && !cfg.usbVID.isEmpty { d.problems.append(T(39)) }
+
+        // 4 目标配置
+        if cfg.dev.isEmpty || (cfg.usbVID.isEmpty && cfg.service.isEmpty) {
+            d.problems.append(T(40))
+        }
+        d.lines.append("\(T(34)): \(cfg.service.isEmpty ? cfg.dev : cfg.service) / \(cfg.methodText)")
+
+        // 5 接口是否真实存在
+        if Sys.run("ifconfig \(cfg.dev) >/dev/null 2>&1 && echo y") != "y" {
+            d.problems.append(T(41, cfg.dev))
+        }
+
+        // 6 开机自启
+        d.lines.append("\(T(30)): \(LaunchAtLogin.isEnabled ? T(35) : T(36))")
+        if !LaunchAtLogin.isEnabled { d.problems.append(T(42)) }
+
+        return d
     }
 }
 
@@ -347,24 +469,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.run()
     }
 
+    func applicationWillTerminate(_ n: Notification) {
+        caffeinate?.terminate()
+    }
+
     func applicationDidFinishLaunching(_ n: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         refreshIcon()
         watcher.start()
-        if Config.load().dev.isEmpty || !FileManager.default.fileExists(atPath: Config.path) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.pickTarget() }
+        HealthCache.shared.refresh(Config.load().dev)
+        if !FileManager.default.fileExists(atPath: Config.path) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.firstRunGuide() }
         }
     }
 
     func refreshIcon() {
         guard let btn = statusItem.button else { return }
         let cfg = Config.load()
-        let healthy = Sys.run("ifconfig \(cfg.dev) 2>/dev/null | grep -q 'inet ' && echo y") == "y"
+        let healthy = HealthCache.shared.value(for: cfg.dev)
+
+        // 显示模式：隐藏 / 仅异常时显示
+        switch IconMode.current {
+        case .hidden:      statusItem.isVisible = false
+        case .problemOnly: statusItem.isVisible = !healthy || keepAwake
+        case .always:      statusItem.isVisible = true
+        }
         let name = keepAwake ? "bolt.horizontal.circle.fill"
                              : (healthy ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
-        let img = NSImage(systemSymbolName: name, accessibilityDescription: "LTE Guard")
+        var img = NSImage(systemSymbolName: name, accessibilityDescription: "LTE Guard")
+        if img == nil {   // 旧系统缺该符号时回退
+            img = NSImage(systemSymbolName: healthy ? "wifi" : "wifi.slash", accessibilityDescription: "LTE Guard")
+        }
         img?.isTemplate = true
-        btn.image = img
+        if let img = img { btn.image = img; btn.title = "" }
+        else { btn.image = nil; btn.title = healthy ? "LTE" : "LTE!" }
         buildMenu()
     }
 
@@ -387,7 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let m = NSMenu()
         m.addItem(withTitle: T(1), action: nil, keyEquivalent: "").isEnabled = false
 
-        let health = Sys.interfaceHealthy(cfg.dev)
+        let health = HealthCache.shared.value(for: cfg.dev)
         let target = item(T(2, cfg.service.isEmpty ? cfg.dev : cfg.service, health ? T(3) : T(4)), nil,
                           symbol: health ? "checkmark.circle" : "exclamationmark.triangle")
         target.isEnabled = false
@@ -405,6 +543,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
         m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
         m.addItem(item(T(12), #selector(openLog), symbol: "doc.text"))
+        m.addItem(item(T(30), #selector(toggleLaunch),
+                       state: LaunchAtLogin.isEnabled ? .on : .off, symbol: "power.circle"))
+        m.addItem(item(T(29), #selector(showDiagnosis), symbol: "stethoscope"))
+        m.addItem(item(T(53), #selector(editPostCmd), symbol: "terminal"))
+
+        // 菜单栏图标显示方式
+        let iconItem = item(T(48), nil, symbol: "menubar.rectangle")
+        let iconMenu = NSMenu()
+        for (mode, title) in [(IconMode.always, T(49)), (.problemOnly, T(50)), (.hidden, T(51))] {
+            let mi = NSMenuItem(title: title, action: #selector(setIconMode(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.tag = mode.rawValue
+            mi.state = (IconMode.current == mode) ? .on : .off
+            iconMenu.addItem(mi)
+        }
+        iconItem.submenu = iconMenu
+        iconItem.isEnabled = true
+        m.addItem(iconItem)
 
         // 语言子菜单
         let langItem = item(T(13), nil, symbol: "globe")
@@ -420,6 +576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         langItem.isEnabled = true
         m.addItem(langItem)
         m.addItem(.separator())
+        m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
         m.addItem(item(T(14), #selector(quit), symbol: "power"))
         statusItem.menu = m
     }
@@ -492,6 +649,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshIcon()
     }
 
+    @objc func setIconMode(_ sender: NSMenuItem) {
+        guard let mode = IconMode(rawValue: sender.tag) else { return }
+        IconMode.current = mode
+        if mode == .hidden { notify(T(52)) }
+        refreshIcon()
+    }
+
+    /// 恢复后执行命令：GUI 编辑（默认空，未配置不会执行任何东西）
+    @objc func editPostCmd() {
+        var cfg = Config.load()
+        let a = NSAlert()
+        a.messageText = T(53)
+        a.informativeText = T(54)
+        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
+        tf.stringValue = cfg.postCmd
+        tf.placeholderString = "launchctl kickstart -k gui/$(id -u)/com.example.myproxy"
+        a.accessoryView = tf
+        a.addButton(withTitle: T(17))
+        a.addButton(withTitle: T(18))
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        cfg.postCmd = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.save()
+        notify(T(55))
+    }
+
+    @objc func toggleLaunch() {
+        LaunchAtLogin.set(!LaunchAtLogin.isEnabled)
+        notify(LaunchAtLogin.isEnabled ? T(43) : T(44))
+        refreshIcon()
+    }
+
+    @objc func showDiagnosis() {
+        let d = Diagnosis.run()
+        let a = NSAlert()
+        a.messageText = T(29)
+        a.informativeText = d.lines.joined(separator: "\n")
+            + (d.problems.isEmpty ? "\n\n✅ " + T(45)
+                                  : "\n\n⚠️ " + T(46) + "\n• " + d.problems.joined(separator: "\n• "))
+        a.alertStyle = d.problems.isEmpty ? .informational : .warning
+        a.addButton(withTitle: T(17))
+        NSApp.activate(ignoringOtherApps: true)
+        a.runModal()
+    }
+
+    /// 首次运行引导：说明 → 选网卡 → 开机自启
+    private func firstRunGuide() {
+        let a = NSAlert()
+        a.messageText = T(25)
+        a.informativeText = T(26)
+        a.alertStyle = .informational
+        a.addButton(withTitle: T(27))
+        a.addButton(withTitle: T(18))
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+
+        pickTarget()
+
+        let b = NSAlert()
+        b.messageText = T(28)
+        b.informativeText = T(47)
+        b.addButton(withTitle: T(27))
+        b.addButton(withTitle: T(18))
+        if b.runModal() == .alertFirstButtonReturn { LaunchAtLogin.set(true) }
+        refreshIcon()
+    }
+
     @objc func healNow() {
         notify(T(22))
         Healer.shared.checkAndHeal(reason: "manual")
@@ -502,6 +726,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? "".write(toFile: Sys.logPath, atomically: true, encoding: .utf8)
         }
         NSWorkspace.shared.open(URL(fileURLWithPath: Sys.logPath))
+    }
+
+    @objc func showAbout() {
+        let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let a = NSAlert()
+        a.messageText = "LTE Guard \(ver)"
+        a.informativeText = "\(T(57))\n\n\(T(59))"
+        a.alertStyle = .informational
+        a.addButton(withTitle: T(58))       // 项目主页
+        a.addButton(withTitle: T(17))       // 确定
+        NSApp.activate(ignoringOtherApps: true)
+        if a.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "https://github.com/oceantangqoit/Mac-lte-guard") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc func quit() {

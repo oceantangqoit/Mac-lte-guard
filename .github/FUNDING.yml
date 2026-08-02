@@ -1,0 +1,6 @@
+# GitHub 会据此在仓库页显示 Sponsor 按钮
+# 想启用哪个就取消注释并填上你的账号
+# github: [oceantangqoit]
+# buy_me_a_coffee: your-name
+# ko_fi: your-name
+custom: ["https://github.com/oceantangqoit/Mac-lte-guard#支持项目"]

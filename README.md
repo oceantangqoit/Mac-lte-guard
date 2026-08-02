@@ -54,6 +54,22 @@ cd Mac-lte-guard && ./build.sh
 
 产物在 `dist/`。图标渲染需要 `brew install librsvg`，不装也能构建（App 使用默认图标）。
 
+## 首次使用
+
+安装后第一次打开会有引导：**说明 → 选择要守护的网卡 → 询问是否开机自启**，跟着点完即可。
+
+遇到问题先点菜单里的 **运行诊断**，它会逐项检查并直接告诉你怎么修：
+
+| 诊断项 | 出问题时的含义与对策 |
+|---|---|
+| 安装位置 | 若显示在 `/Volumes/…`，说明你在从 DMG 里直接运行 —— 先把 App 拖进「应用程序」 |
+| 隔离属性 (Gatekeeper) | 未签名应用的正常标记。若打不开：**右键 App → 打开 → 打开**，或 `xattr -dr com.apple.quarantine /Applications/LTEGuard.app` |
+| 修复工具 | usbreset 是否可用；正常情况随 App 一起安装，不需要单独装 |
+| 守护目标 | 是否已选网卡、接口是否真实存在（换了网卡会提示） |
+| 开机启动 | 关闭时重启电脑不会自动运行，可在菜单里一键开启 |
+
+**权限说明**：本工具不需要辅助功能、磁盘访问等敏感权限，也不需要 root。只有可选的「保持联网（合盖）」需要一次性配置免密 `pmset`（见下文），不配也能用。
+
 ## 使用
 
 1. 启动后菜单栏出现信号图标
@@ -68,6 +84,11 @@ cd Mac-lte-guard && ./build.sh
 | 正常睡眠（唤醒自愈） | 默认模式 |
 | 立即检测并修复 | 手动触发一次 |
 | 查看日志 | 打开 `~/.lte-wake.log` |
+| 开机启动 | 开关，随时可改（DMG 安装的用户也能用） |
+| 运行诊断 | 逐项自检并给出对策 |
+| 恢复后执行命令… | 可选钩子：网卡恢复后自动跑一条 Shell 命令（留空则什么都不做） |
+| 菜单栏图标 | 始终显示 / 仅异常时显示 / 隐藏 |
+| 语言 | 16 种语言切换 |
 
 **可选**：想让「保持联网」在合盖时也生效，需要给 pmset 免密权限（执行一次）：
 
@@ -141,6 +162,27 @@ launchctl bootout gui/$(id -u)/com.oceantang.lteguard
 rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
 rm -rf /Applications/LTEGuard.app
 ```
+
+## 支持项目
+
+如果这个小工具帮你省了反复拔插 USB 的麻烦：
+
+- ⭐ 给仓库点个 Star，或把它推荐给同样被这个问题困扰的人
+- 🐛 提 Issue 反馈你的设备型号与日志，帮助覆盖更多网卡
+- 🌍 贡献一种语言翻译（[CONTRIBUTING.md](CONTRIBUTING.md)，改几行 INI 就行）
+- ☕ 请作者喝杯咖啡
+
+<!-- 放收款码：把图片放进 docs/ 目录后取消下面的注释
+<p align="center">
+  <img src="docs/sponsor-wechat.jpg" width="200" alt="微信赞赏">
+  <img src="docs/sponsor-alipay.jpg" width="200" alt="支付宝">
+</p>
+-->
+
+## 联系
+
+作者：Ocean Tang · 执业律师，业余写点自用的小工具
+反馈与建议欢迎走 [Issues](../../issues)
 
 ## 许可
 
