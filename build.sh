@@ -26,6 +26,7 @@ APP=$B/LTEGuard.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp $B/LTEGuard "$APP/Contents/MacOS/"
 cp $B/usbreset "$APP/Contents/Resources/"
+cp -R lang "$APP/Contents/Resources/lang"
 [ -f $B/AppIcon.icns ] && cp $B/AppIcon.icns "$APP/Contents/Resources/"
 sed "s/__VERSION__/$VER/g" packaging/Info.plist > "$APP/Contents/Info.plist"
 codesign --force --deep -s - "$APP"

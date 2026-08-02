@@ -52,7 +52,7 @@ struct Config {
     }
 
     var methodText: String {
-        usbVID.isEmpty ? "重启网络服务" : "USB 软件拔插 (\(usbVID):\(usbPID))"
+        usbVID.isEmpty ? T(7) : T(6, usbVID, usbPID)
     }
 }
 
@@ -136,6 +136,115 @@ enum Sys {
         }
         guard !gw.isEmpty else { return false }
         return run("ping -c 1 -t 3 -b \(dev) \(gw) >/dev/null 2>&1 && echo y") == "y"
+    }
+}
+
+
+// MARK: - 多语言（数字键 INI）
+
+/// 文案全部走数字代码，语言文件在 App 内 Resources/lang/*.ini，
+/// 用户自定义可放 ~/.lte-guard-lang/*.ini（同名覆盖内置）。
+final class I18n {
+    static let shared = I18n()
+    private var table: [Int: String] = [:]
+    private(set) var code: String = ""
+
+    /// 可选语言列表 [(文件代码, 显示名)]
+    var available: [(String, String)] {
+        var found: [String: String] = [:]
+        for dir in I18n.searchDirs {
+            guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir) else { continue }
+            for f in files where f.hasSuffix(".ini") {
+                let c = String(f.dropLast(4))
+                if found[c] == nil { found[c] = I18n.metaName(dir + "/" + f) ?? c }
+            }
+        }
+        return found.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+    }
+
+    static var searchDirs: [String] {
+        var d = [NSHomeDirectory() + "/.lte-guard-lang"]
+        if let r = Bundle.main.resourcePath { d.append(r + "/lang") }
+        return d
+    }
+
+    private static func metaName(_ path: String) -> String? {
+        guard let t = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        for line in t.split(separator: "\n") {
+            let s = line.trimmingCharacters(in: .whitespaces)
+            if s.lowercased().hasPrefix("name=") { return String(s.dropFirst(5)) }
+        }
+        return nil
+    }
+
+    private init() { load(preferred: nil) }
+
+    /// 载入语言：显式指定 > 用户偏好 > 系统语言 > en
+    func load(preferred: String?) {
+        let want = preferred
+            ?? UserDefaults.standard.string(forKey: "lang")
+            ?? Locale.preferredLanguages.first.map { l -> String in
+                if l.hasPrefix("zh-Hant") || l.hasPrefix("zh-TW") || l.hasPrefix("zh-HK") || l.hasPrefix("zh-MO") { return "zh-Hant" }
+                if l.hasPrefix("zh") { return "zh-Hans" }
+                // 保留地区变体（pt-BR / es-MX / es-AR），其余取主语言
+                let parts = l.split(separator: "-")
+                if parts.count >= 2, ["pt","es"].contains(String(parts[0])) {
+                    return "\(parts[0])-\(parts[1])"
+                }
+                return String(l.prefix(2))
+            }
+            ?? "en"
+
+        // 依次尝试：完整代码 -> 主语言 -> en
+        var chain = [want]
+        if want.contains("-"), let base = want.split(separator: "-").first { chain.append(String(base)) }
+        chain.append("en")
+
+        for cand in chain {
+            for dir in I18n.searchDirs {
+                let path = "\(dir)/\(cand).ini"
+                if let t = try? String(contentsOfFile: path, encoding: .utf8) {
+                    parse(t); code = cand
+                    if preferred != nil { UserDefaults.standard.set(cand, forKey: "lang") }
+                    return
+                }
+            }
+        }
+        table = [:]; code = want
+    }
+
+    private func parse(_ text: String) {
+        table.removeAll()
+        var inStrings = false
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") { continue }
+            if line.hasPrefix("[") {
+                inStrings = line.lowercased() == "[strings]"
+                continue
+            }
+            guard inStrings, let eq = line.firstIndex(of: "="),
+                  let key = Int(line[line.startIndex..<eq].trimmingCharacters(in: .whitespaces))
+            else { continue }
+            table[key] = String(line[line.index(after: eq)...])
+        }
+    }
+
+    /// 取文案：t(21, "Wi-Fi", "USB") -> "已守护 Wi-Fi，方式：USB"
+    func t(_ id: Int, _ args: CVarArg...) -> String {
+        var s = table[id] ?? "#\(id)"
+        for (i, a) in args.enumerated() {
+            s = s.replacingOccurrences(of: "{\(i)}", with: "\(a)")
+        }
+        return s
+    }
+}
+
+func T(_ id: Int, _ args: CVarArg...) -> String {
+    switch args.count {
+    case 0: return I18n.shared.t(id)
+    case 1: return I18n.shared.t(id, args[0])
+    default: return I18n.shared.t(id, args[0], args[1])
     }
 }
 
@@ -276,28 +385,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func buildMenu() {
         let cfg = Config.load()
         let m = NSMenu()
-        m.addItem(withTitle: "LTE Guard", action: nil, keyEquivalent: "").isEnabled = false
+        m.addItem(withTitle: T(1), action: nil, keyEquivalent: "").isEnabled = false
 
         let health = Sys.interfaceHealthy(cfg.dev)
-        let target = item("守护：\(cfg.service.isEmpty ? cfg.dev : cfg.service)  \(health ? "● 正常" : "○ 断联")", nil,
+        let target = item(T(2, cfg.service.isEmpty ? cfg.dev : cfg.service, health ? T(3) : T(4)), nil,
                           symbol: health ? "checkmark.circle" : "exclamationmark.triangle")
         target.isEnabled = false
         m.addItem(target)
-        let method = item("方式：\(cfg.methodText)", nil)
+        let method = item(T(5, cfg.methodText), nil)
         method.isEnabled = false
         m.addItem(method)
         m.addItem(.separator())
 
-        m.addItem(item("睡眠时保持联网", #selector(toggleKeep),
+        m.addItem(item(T(8), #selector(toggleKeep),
                        state: keepAwake ? .on : .off, symbol: "bolt.fill"))
-        m.addItem(item("正常睡眠（唤醒自愈）", #selector(toggleNormal),
+        m.addItem(item(T(9), #selector(toggleNormal),
                        state: keepAwake ? .off : .on, symbol: "moon.zzz.fill"))
         m.addItem(.separator())
-        m.addItem(item("选择治愈对象…", #selector(pickTarget), symbol: "target"))
-        m.addItem(item("立即检测并修复", #selector(healNow), symbol: "wrench.and.screwdriver"))
-        m.addItem(item("查看日志", #selector(openLog), symbol: "doc.text"))
+        m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
+        m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
+        m.addItem(item(T(12), #selector(openLog), symbol: "doc.text"))
+
+        // 语言子菜单
+        let langItem = item(T(13), nil, symbol: "globe")
+        let langMenu = NSMenu()
+        for (code, name) in I18n.shared.available {
+            let li = NSMenuItem(title: name, action: #selector(switchLang(_:)), keyEquivalent: "")
+            li.target = self
+            li.representedObject = code
+            li.state = (code == I18n.shared.code) ? .on : .off
+            langMenu.addItem(li)
+        }
+        langItem.submenu = langMenu
+        langItem.isEnabled = true
+        m.addItem(langItem)
         m.addItem(.separator())
-        m.addItem(item("退出", #selector(quit), symbol: "power"))
+        m.addItem(item(T(14), #selector(quit), symbol: "power"))
         statusItem.menu = m
     }
 
@@ -313,7 +436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keepAwake = true
         Sys.run("sudo -n /usr/bin/pmset -b disablesleep 1 2>/dev/null")
         Sys.log("mode=keep")
-        notify("睡眠保持联网已开启")
+        notify(T(19))
         refreshIcon()
     }
 
@@ -322,17 +445,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keepAwake = false
         Sys.run("sudo -n /usr/bin/pmset -b disablesleep 0 2>/dev/null")
         Sys.log("mode=normal")
-        notify("正常睡眠：断联后自动修复")
+        notify(T(20))
         refreshIcon()
     }
 
     @objc func pickTarget() {
         let services = Sys.networkServices()
-        guard !services.isEmpty else { notify("未找到网络服务"); return }
+        guard !services.isEmpty else { notify(T(23)); return }
 
         let alert = NSAlert()
-        alert.messageText = "选择治愈对象"
-        alert.informativeText = "断联时自动恢复所选网卡。USB 网卡将使用软件拔插，其他网卡使用重启服务。"
+        alert.messageText = T(15)
+        alert.informativeText = T(16)
         alert.alertStyle = .informational
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 300, height: 26))
         for (svc, dev) in services {
@@ -342,8 +465,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let cur = Config.load().dev
         if let idx = services.firstIndex(where: { $0.1 == cur }) { popup.selectItem(at: idx) }
         alert.accessoryView = popup
-        alert.addButton(withTitle: "确定")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: T(17))
+        alert.addButton(withTitle: T(18))
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -357,12 +480,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if dev != oldDev { cfg.postCmd = "" }
         cfg.save()
         Sys.log("target -> \(svc) [\(dev)] \(cfg.methodText)")
-        notify("已守护 \(svc)，方式：\(cfg.methodText)")
+        notify(T(21, svc, cfg.methodText))
+        refreshIcon()
+    }
+
+    @objc func switchLang(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String else { return }
+        I18n.shared.load(preferred: code)
+        Sys.log("lang=\(code)")
+        notify(T(24))
         refreshIcon()
     }
 
     @objc func healNow() {
-        notify("正在检测…")
+        notify(T(22))
         Healer.shared.checkAndHeal(reason: "manual")
     }
 
