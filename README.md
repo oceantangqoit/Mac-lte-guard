@@ -172,12 +172,7 @@ rm -rf /Applications/LTEGuard.app
 - 🌍 贡献一种语言翻译（[CONTRIBUTING.md](CONTRIBUTING.md)，改几行 INI 就行）
 - ☕ 请作者喝杯咖啡
 
-<!-- 放收款码：把图片放进 docs/ 目录后取消下面的注释
-<p align="center">
-  <img src="docs/sponsor-wechat.jpg" width="200" alt="微信赞赏">
-  <img src="docs/sponsor-alipay.jpg" width="200" alt="支付宝">
-</p>
--->
+详见 [支持项目](SPONSOR.md)。
 
 ## 交流与联系
 

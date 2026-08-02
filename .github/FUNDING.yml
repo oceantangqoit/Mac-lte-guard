@@ -1,6 +1,13 @@
-# GitHub 会据此在仓库页显示 Sponsor 按钮
-# 想启用哪个就取消注释并填上你的账号
+# 显示在仓库右侧的 Sponsor 按钮
+#
+# 说明（针对中国大陆作者）：
+#   github:          需要 GitHub Sponsors 账户，大陆地区暂无法开通收款
+#   buy_me_a_coffee: 需 PayPal/Stripe 提现，大陆不便
+#   custom:          任意 URL，最多 4 条 —— 这是最实用的一项
+#
+# 若日后可用，取消注释填上账号即可：
 # github: [oceantangqoit]
 # buy_me_a_coffee: your-name
 # ko_fi: your-name
-custom: ["https://github.com/oceantangqoit/Mac-lte-guard#支持项目"]
+
+custom: ["https://github.com/oceantangqoit/Mac-lte-guard/blob/main/SPONSOR.md"]
