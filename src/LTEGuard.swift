@@ -163,12 +163,19 @@ final class I18n {
         var found: [String: String] = [:]
         for dir in I18n.searchDirs {
             guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir) else { continue }
-            for f in files where f.hasSuffix(".ini") {
+            for f in files where f.hasSuffix(".ini") && !f.hasSuffix(".template.ini") {
                 let c = String(f.dropLast(4))
                 if found[c] == nil { found[c] = I18n.metaName(dir + "/" + f) ?? c }
             }
         }
-        return found.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+        // 排序：汉语及其方言 → 中国少数民族语言 → 其他（按代码）
+        let priority = ["zh-Hans", "zh-Hant", "yue", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
+                        "bo", "ug", "mn-Mong", "ko", "kk"]
+        func rank(_ c: String) -> Int { priority.firstIndex(of: c) ?? priority.count }
+        return found.sorted {
+            let (a, b) = (rank($0.key), rank($1.key))
+            return a != b ? a < b : $0.key < $1.key
+        }.map { ($0.key, $0.value) }
     }
 
     /// 应用配置根目录（菜单中一键打开）
@@ -277,7 +284,7 @@ final class I18n {
     /// 当前语言是否从右向左书写
     var isRTL: Bool {
         let base = code.split(separator: "-").first.map(String.init) ?? code
-        return ["ar", "he", "fa", "ur", "ps", "ckb", "yi", "dv"].contains(base)
+        return ["ar", "he", "fa", "ur", "ug", "ps", "ckb", "yi", "dv"].contains(base)
     }
 
     // Unicode 双向算法隔离符（W3C i18n 推荐做法）
@@ -660,6 +667,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 语言子菜单
         let langItem = item(T(13), nil, symbol: "globe")
         let langMenu = NSMenu()
+        let disc = NSMenuItem(title: T(69), action: nil, keyEquivalent: "")
+        disc.isEnabled = false
+        langMenu.addItem(disc)
+        langMenu.addItem(.separator())
         langMenu.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
         for (code, name) in I18n.shared.available {
             let li = NSMenuItem(title: name, action: #selector(switchLang(_:)), keyEquivalent: "")
@@ -837,7 +848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let a = NSAlert()
         a.messageText = "LTE Guard \(ver)"
-        a.informativeText = I18n.shared.paragraph("\(T(57))\n\n\(T(64))\n\(T(66))\n\(T(65))\n\n\(T(59))")
+        a.informativeText = I18n.shared.paragraph("\(T(57))\n\n\(T(64))\n\(T(66))\n\(T(65))\n\n\(T(70))\n\n\(T(59))")
         a.alertStyle = .informational
         a.addButton(withTitle: T(58))       // 项目主页
         a.addButton(withTitle: T(17))       // 确定
