@@ -4,20 +4,71 @@ import Cocoa
 import IOKit
 import IOKit.pwr_mgt
 import IOKit.usb
+import UserNotifications
+
+// MARK: - 原生通知
+// osascript 的 display notification 在现代 macOS 上会被静默丢弃
+//（发送者是"脚本编辑器"，默认无通知权限），必须用 App 自己的通知。
+enum Notifier {
+    static func requestAuth() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, err in
+            Sys.log("notify auth: granted=\(granted)\(err.map { " error=\($0.localizedDescription)" } ?? "")")
+        }
+    }
+
+    static func post(_ body: String, title: String = "LTE Guard") {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { st in
+            if st.authorizationStatus == .authorized {
+                let content = UNMutableNotificationContent()
+                content.title = title
+                content.body = body
+                let req = UNNotificationRequest(identifier: UUID().uuidString,
+                                                content: content, trigger: nil)
+                center.add(req) { err in
+                    if let err = err { Sys.log("notify add error: \(err.localizedDescription)") }
+                }
+            } else {
+                // 未授权 / ad-hoc 签名被拒 → 老 API 兜底（已废弃但仍可投递）
+                let n = NSUserNotification()
+                n.title = title
+                n.informativeText = body
+                NSUserNotificationCenter.default.deliver(n)
+            }
+        }
+    }
+}
 
 // MARK: - 配置
 
+/// 一个治愈对象：一块网卡（或其背后的 USB 设备）
+struct Target: Equatable {
+    var dev = ""       // BSD 接口名，如 en2
+    var service = ""   // 网络服务名
+    var vid = ""       // USB VID；为空 = 非 USB，降级为重启网络服务
+    var pid = ""
+
+    var display: String { service.isEmpty ? dev : service }
+    var methodText: String { vid.isEmpty ? T(7) : T(6, vid, pid) }
+}
+
 struct Config {
-    var dev = "en2"
-    var service = ""
-    var usbVID = ""
-    var usbPID = ""
-    var postCmd = ""
+    var targets: [Target] = []
+    var preCmd = ""    // 发现断联时执行（此刻网络不可用）
+    var postCmd = ""   // 恢复后执行
+
+    // 兼容视图：部分旧代码路径仍以"第一个对象"工作
+    var dev: String { targets.first?.dev ?? "" }
+    var service: String { targets.first?.service ?? "" }
+    var usbVID: String { targets.first?.vid ?? "" }
+    var usbPID: String { targets.first?.pid ?? "" }
 
     static let path = NSHomeDirectory() + "/.lte-guard.conf"
 
     static func load() -> Config {
         var c = Config()
+        var old = Target()   // 旧版单对象四键
+        var sawTargets = false
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return c }
         for line in text.split(separator: "\n") {
             let s = line.trimmingCharacters(in: .whitespaces)
@@ -25,11 +76,22 @@ struct Config {
             let key = String(s[s.startIndex..<eq])
             let raw = String(s[s.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
 
-            // POST_CMD 的值里天然含有 "   #lteguard" 标记，绝不能走"剥行尾注释"，
-            // 必须按引号边界+转义规则解析（\' 不是结束，裸 ' 才是）
-            if key == "POST_CMD" {
-                c.postCmd = Config.parseQuoted(raw) ?? Config.unescape(
+            // TARGETS/PRE_CMD/POST_CMD 的值里可能含 \n、'、"   #lteguard" 标记，
+            // 绝不能走"剥行尾注释"，必须按引号边界+转义规则解析（\' 不是结束，裸 ' 才是）
+            if key == "POST_CMD" || key == "PRE_CMD" || key == "TARGETS" {
+                let v = Config.parseQuoted(raw) ?? Config.unescape(
                     raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'")))
+                switch key {
+                case "PRE_CMD":  c.preCmd = v
+                case "POST_CMD": c.postCmd = v
+                default:
+                    sawTargets = true
+                    c.targets = v.split(separator: "\n").compactMap { row in
+                        let f = row.components(separatedBy: "\t")
+                        guard f.count >= 4, !f[0].isEmpty else { return nil }
+                        return Target(dev: f[0], service: f[1], vid: f[2], pid: f[3])
+                    }
+                }
                 continue
             }
 
@@ -37,23 +99,26 @@ struct Config {
             if let hash = val.range(of: "  #") { val = String(val[val.startIndex..<hash.lowerBound]) }
             val = val.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
             switch key {
-            case "DEV": c.dev = val
-            case "SERVICE": c.service = val
-            case "USB_VID": c.usbVID = val
-            case "USB_PID": c.usbPID = val
+            case "DEV": old.dev = val
+            case "SERVICE": old.service = val
+            case "USB_VID": old.vid = val
+            case "USB_PID": old.pid = val
             default: break
             }
         }
+        // 旧版 conf（无 TARGETS 键）→ 单对象升级
+        if !sawTargets && !old.dev.isEmpty { c.targets = [old] }
         return c
     }
 
     func save() {
+        let rows = targets.map { "\($0.dev)\t\($0.service)\t\($0.vid)\t\($0.pid)" }
+            .joined(separator: "\n")
         let text = """
         # LTE Guard 配置（由 App 维护，也可手改）
-        DEV="\(dev)"
-        SERVICE="\(service)"
-        USB_VID="\(usbVID)"
-        USB_PID="\(usbPID)"
+        # TARGETS：每行一个治愈对象，字段以制表符分隔：接口\t服务名\tUSB_VID\tUSB_PID
+        TARGETS='\(Config.escape(rows))'
+        PRE_CMD='\(Config.escape(preCmd))'
         POST_CMD='\(Config.escape(postCmd))'
 
         """
@@ -117,6 +182,31 @@ struct Config {
 
     var methodText: String {
         usbVID.isEmpty ? T(7) : T(6, usbVID, usbPID)
+    }
+
+    /// v2.3 一次性迁移：只处理带 #lteguard 标记的程序行，手写行永不触碰。
+    /// - 旧「打开网络设置」预设 → 换成新 URL 并挪到 PRE_CMD（观察修复过程）
+    /// - 旧「提示恢复」「验证能否上网」预设 → 移除（已内建为原生通知）
+    mutating func migrateV23() -> Bool {
+        var changed = false
+        var post: [String] = []
+        for raw in postCmd.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard line.hasSuffix("#lteguard") else { post.append(raw); continue }
+            if line.contains("Network.prefPane") {
+                let entry = "open \"x-apple.systempreferences:com.apple.Network-Settings.extension\"   #lteguard"
+                if !preCmd.contains("Network-Settings") {
+                    preCmd = preCmd.isEmpty ? entry : preCmd + "\n" + entry
+                }
+                changed = true
+            } else if line.contains("captive.apple.com") || line.contains("display notification") {
+                changed = true   // 功能已内建，移除
+            } else {
+                post.append(raw)
+            }
+        }
+        if changed { postCmd = post.joined(separator: "\n") }
+        return changed
     }
 }
 
@@ -229,7 +319,8 @@ enum Sys {
             gw = run("netstat -rn -f inet | awk '$1==\"default\" && $NF==\"\(dev)\" {print $2; exit}'")
         }
         guard !gw.isEmpty else { return false }
-        return run("ping -c 1 -t 3 -b \(dev) \(gw) >/dev/null 2>&1 && echo y") == "y"
+        // 局域网关正常 <10ms 应答，1 秒超时足够；假死时快速失败让修复更早启动
+        return run("ping -c 1 -t 1 -b \(dev) \(gw) >/dev/null 2>&1 && echo y") == "y"
     }
 }
 
@@ -429,21 +520,28 @@ func T(_ id: Int, _ args: CVarArg...) -> String {
 /// 健康状态缓存：菜单渲染读缓存，实际探测在后台线程
 final class HealthCache {
     static let shared = HealthCache()
-    private(set) var healthy = true
+    private var map: [String: Bool] = [:]   // 接口 → 健康（主线程访问）
     private var lastCheck = Date.distantPast
 
-    func value(for dev: String) -> Bool {
-        if Date().timeIntervalSince(lastCheck) > 20 { refresh(dev) }
-        return healthy
+    /// 单接口状态（菜单逐对象显示用）
+    func healthy(_ dev: String) -> Bool { map[dev] ?? true }
+
+    /// 全部对象都健康才算健康（图标用）；超过 20 秒自动后台刷新
+    func value(for devs: [String]) -> Bool {
+        if Date().timeIntervalSince(lastCheck) > 20 { refresh(devs) }
+        return devs.allSatisfy { healthy($0) }
     }
 
-    func refresh(_ dev: String) {
+    func refresh(_ devs: [String]) {
+        lastCheck = Date()
         DispatchQueue.global(qos: .utility).async {
-            let h = Sys.interfaceHealthy(dev)
+            let results = devs.map { ($0, Sys.interfaceHealthy($0)) }
             DispatchQueue.main.async {
-                let changed = (h != self.healthy)
-                self.healthy = h
-                self.lastCheck = Date()
+                var changed = false
+                for (dev, h) in results {
+                    if self.map[dev] != h { changed = true }
+                    self.map[dev] = h
+                }
                 if changed { AppDelegate.shared?.refreshIcon() }
             }
         }
@@ -452,43 +550,105 @@ final class HealthCache {
 
 final class Healer {
     static let shared = Healer()
-    private var lastHeal = Date.distantPast
-    private let cooldown: TimeInterval = 90
+    /// 按对象记录上次修复时间。冷却期只为吸收双路唤醒信号
+    ///（IOKit + NSWorkspace）的重复触发；再次唤醒/手动时立即可再修
+    private var lastHeal: [String: Date] = [:]
+    private let cooldown: TimeInterval = 15
+    /// 串行队列保护冷却表与修复计数；修复本体并行执行
+    private let q = DispatchQueue(label: "lteguard.healer", qos: .utility)
 
+    /// 有修复在进行中（图标显示用，主线程访问）
+    private(set) var healing = false
+    private var active = 0
+
+    private func healingDelta(_ d: Int) {
+        DispatchQueue.main.async {
+            self.active += d
+            self.healing = self.active > 0
+            AppDelegate.shared?.refreshIcon()
+        }
+    }
+
+    /// 不做状态预检：装本工具的人就是假死受害者，唤醒即修。
+    /// 对健康设备多做一次软件拔插无害，预检反而白白拖慢恢复。
     func checkAndHeal(reason: String) {
-        DispatchQueue.global(qos: .utility).async {
+        q.async {
             let cfg = Config.load()
-            if Sys.interfaceHealthy(cfg.dev) { return }
-            Thread.sleep(forTimeInterval: 3)
-            if Sys.interfaceHealthy(cfg.dev) { return }
-            guard Date().timeIntervalSince(self.lastHeal) > self.cooldown else { return }
-            self.lastHeal = Date()
-
-            if !cfg.usbVID.isEmpty {
-                Sys.log(T(93, reason, cfg.dev, "\(cfg.usbVID):\(cfg.usbPID)"))
-                let tool = Sys.usbresetPath
-                let out = Sys.run("'\(tool)' \(cfg.usbVID) \(cfg.usbPID) 2>&1")
-                Sys.log(out)
-            } else if !cfg.service.isEmpty {
-                Sys.log(T(94, reason, cfg.dev, cfg.service))
-                Sys.run("networksetup -setnetworkserviceenabled '\(cfg.service)' off; sleep 3; networksetup -setnetworkserviceenabled '\(cfg.service)' on")
-            } else {
-                Sys.log(T(95, reason, cfg.dev))
-                return
+            let now = Date()
+            let due = cfg.targets.filter { t in
+                !t.dev.isEmpty &&
+                now.timeIntervalSince(self.lastHeal[t.dev] ?? .distantPast) > self.cooldown
             }
+            guard !due.isEmpty else { return }
+            due.forEach { self.lastHeal[$0.dev] = now }
 
-            for i in 1...12 {
-                Thread.sleep(forTimeInterval: 5)
-                if Sys.run("ifconfig \(cfg.dev) 2>/dev/null | grep -q 'inet ' && echo y") == "y" {
-                    Thread.sleep(forTimeInterval: 2)
-                    if !cfg.postCmd.isEmpty { Sys.run(cfg.postCmd) }
-                    Sys.log(T(96, cfg.dev, i*5))
-                    DispatchQueue.main.async { AppDelegate.shared?.refreshIcon() }
-                    return
+            // ── 「断联时命令」第一时间抢跑（如打开网络面板——它冷启动要 2-4 秒，
+            //    必须赶在拔插前开跑，用户才能看到从断联到恢复的全过程）──
+            if !cfg.preCmd.isEmpty { Sys.run(cfg.preCmd, wait: false) }
+            // USB 子系统上电就绪缓冲（原唤醒延迟挪到这里，不再拖累 preCmd）
+            Thread.sleep(forTimeInterval: 1)
+
+            // 各对象并行修复；全部结束且至少一个成功后，执行一次「恢复后命令」
+            let group = DispatchGroup()
+            var anyOK = false
+            for t in due {
+                group.enter()
+                DispatchQueue.global(qos: .utility).async {
+                    let ok = self.heal(t, reason: reason)
+                    self.q.async { anyOK = anyOK || ok; group.leave() }
                 }
             }
-            Sys.log(T(97, cfg.dev))
+            group.notify(queue: self.q) {
+                if anyOK && !cfg.postCmd.isEmpty { Sys.run(cfg.postCmd) }
+            }
         }
+    }
+
+    /// 修复单个对象：拔插 → 1 秒粒度轮询 → 内建联网验证。
+    /// 通知只报喜（一切正常才发）；修复中/网不通/失败由图标表达
+    ///（转圈 / ⚠︎ / ✕），不打扰用户。
+    private func heal(_ t: Target, reason: String) -> Bool {
+        healingDelta(+1)
+        defer { healingDelta(-1) }
+        let t0 = Date()
+
+        if !t.vid.isEmpty {
+            Sys.log(T(93, reason, t.dev, "\(t.vid):\(t.pid)"))
+            let out = Sys.run("'\(Sys.usbresetPath)' \(t.vid) \(t.pid) 2>&1")
+            Sys.log(out)
+        } else if !t.service.isEmpty {
+            Sys.log(T(94, reason, t.dev, t.service))
+            Sys.run("networksetup -setnetworkserviceenabled '\(t.service)' off; sleep 3; networksetup -setnetworkserviceenabled '\(t.service)' on")
+        } else {
+            Sys.log(T(95, reason, t.dev))
+            AppDelegate.shared?.flashResult("✕")
+            return false
+        }
+
+        // 1 秒粒度轮询。确认标准是 interfaceHealthy（有 IP 且网关 ping 通）——
+        // 不能只看 ifconfig 的 inet：拔插后头几秒僵尸 IP 仍残留，会误判"3 秒恢复"
+        for _ in 1...30 {
+            Thread.sleep(forTimeInterval: 1)
+            if Sys.interfaceHealthy(t.dev) {
+                let secs = Int(Date().timeIntervalSince(t0).rounded())
+                Sys.log(T(96, t.dev, secs))
+                HealthCache.shared.refresh([t.dev])   // 立刻把图标/菜单状态刷成最新
+
+                // ── 内建联网验证：绑定该接口直测外网，结果进通知+图标 ──
+                let online = Sys.run("curl -s -m 5 --interface \(t.dev) -o /dev/null -w '%{http_code}' http://captive.apple.com")
+                if online == "200" {
+                    Notifier.post(T(105, t.display, secs))
+                    AppDelegate.shared?.flashResult("✓\(secs)s")
+                } else {
+                    AppDelegate.shared?.flashResult("⚠︎")
+                }
+                return true
+            }
+        }
+        Sys.log(T(97, t.dev))
+        HealthCache.shared.refresh([t.dev])
+        AppDelegate.shared?.flashResult("✕")
+        return false
     }
 }
 
@@ -502,6 +662,7 @@ struct PresetCmd {
     let command: String     // 实际命令（不含标记）
     let hint: String        // 宽松匹配用的关键字；为空则只做精确匹配
     var tooltip: String = ""
+    var pre = false         // true = 写入「发现断联时执行」，false = 「恢复后执行」
 }
 
 enum Detect {
@@ -579,15 +740,21 @@ enum Detect {
 ///   - mixed  该命令存在但是用户手写的（勾选框置灰，仅提示不可自动移除）
 ///   - off    不存在
 final class PostCmdEditor: NSObject, NSTextViewDelegate {
-    private let textView: NSTextView
+    private let preTV: NSTextView    // 「发现断联时执行」
+    private let postTV: NSTextView   // 「恢复后执行」
     private var boxes: [(NSButton, PresetCmd)] = []
     private var syncing = false
 
-    init(textView: NSTextView) {
-        self.textView = textView
+    init(preTV: NSTextView, postTV: NSTextView) {
+        self.preTV = preTV
+        self.postTV = postTV
         super.init()
-        textView.delegate = self
+        preTV.delegate = self
+        postTV.delegate = self
     }
+
+    /// 每个预设归属其中一个文本框，由 preset.pre 决定
+    private func tv(for p: PresetCmd) -> NSTextView { p.pre ? preTV : postTV }
 
     func register(_ button: NSButton, _ preset: PresetCmd) {
         button.target = self
@@ -596,15 +763,16 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
         boxes.append((button, preset))
     }
 
-    var currentText: String { textView.string }
+    var currentPre: String { preTV.string }
+    var currentPost: String { postTV.string }
 
     /// 依据文本内容刷新所有勾选框状态
     func refreshBoxes() {
         guard !syncing else { return }
         syncing = true
         defer { syncing = false }
-        let lines = textView.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         for (btn, p) in boxes {
+            let lines = tv(for: p).string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             var state: NSControl.StateValue = .off
             for raw in lines {
                 let line = raw.trimmingCharacters(in: .whitespaces)
@@ -634,8 +802,9 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
     @objc private func toggled(_ sender: NSButton) {
         guard let idx = boxes.firstIndex(where: { $0.0 === sender }) else { return }
         let p = boxes[idx].1
+        let target = tv(for: p)
         syncing = true
-        var lines = textView.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var lines = target.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
         let hasTagged = lines.contains { raw in
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -659,7 +828,7 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
                 return body == p.command
             }
         }
-        textView.string = lines.joined(separator: "\n")
+        target.string = lines.joined(separator: "\n")
         syncing = false
         refreshBoxes()
     }
@@ -744,17 +913,19 @@ struct Diagnosis {
         let tool = Sys.usbresetPath
         let ok = fm.isExecutableFile(atPath: tool)
         d.lines.append("\(T(33)): \(ok ? T(35) : T(36))  \(tool)")
-        if !ok && !cfg.usbVID.isEmpty { d.problems.append(T(39)) }
+        if !ok && cfg.targets.contains(where: { !$0.vid.isEmpty }) { d.problems.append(T(39)) }
 
-        // 4 目标配置
-        if cfg.dev.isEmpty || (cfg.usbVID.isEmpty && cfg.service.isEmpty) {
+        // 4 目标配置（逐对象）
+        if cfg.targets.isEmpty || cfg.targets.contains(where: { $0.dev.isEmpty || ($0.vid.isEmpty && $0.service.isEmpty) }) {
             d.problems.append(T(40))
         }
-        d.lines.append("\(T(34)): \(cfg.service.isEmpty ? cfg.dev : cfg.service) / \(cfg.methodText)")
+        for t in cfg.targets {
+            d.lines.append("\(T(34)): \(t.display) / \(t.methodText)")
 
-        // 5 接口是否真实存在
-        if Sys.run("ifconfig \(cfg.dev) >/dev/null 2>&1 && echo y") != "y" {
-            d.problems.append(T(41, cfg.dev))
+            // 5 接口是否真实存在
+            if Sys.run("ifconfig \(t.dev) >/dev/null 2>&1 && echo y") != "y" {
+                d.problems.append(T(41, t.dev))
+            }
         }
 
         // 6 开机自启
@@ -785,7 +956,10 @@ final class WakeWatcher {
             case kMsgCanSleep, kMsgWillSleep:
                 IOAllowPowerChange(me.rootPort, Int(bitPattern: msgArg))
             case kMsgPoweredOn:
-                DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                // 唤醒即修，不做预检（详见 Healer 注释）。
+                // 不加延迟：「断联时命令」要抢在拔插前跑（如打开网络面板看过程），
+                // USB 就绪缓冲由 Healer 在拔插前自行等待
+                DispatchQueue.global().async {
                     Healer.shared.checkAndHeal(reason: "wake")
                 }
             default: break
@@ -804,7 +978,7 @@ final class WakeWatcher {
 // MARK: - App
 
 @main
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     static var shared: AppDelegate?
     private var statusItem: NSStatusItem!
     private let watcher = WakeWatcher()
@@ -821,6 +995,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.delegate = delegate
         app.setActivationPolicy(.accessory)   // 不在 Dock 显示
         app.run()
+    }
+
+    /// 常驻 App 会被系统视为"前台"，前台通知默认静默——
+    /// 必须实现此代理，横幅才会始终弹出
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    /// 修复结果短暂显示在图标旁（✓8s / ⚠︎ / ✕），10 秒后复原。
+    /// 零权限依赖的兜底反馈——即使通知被系统拦下，用户也能看到结果。
+    private var flashUntil: Date?
+    func flashResult(_ text: String) {
+        DispatchQueue.main.async {
+            self.flashUntil = Date().addingTimeInterval(10)
+            self.statusItem?.button?.title = text
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.5) { self.refreshIcon() }
+        }
     }
 
     /// 用户在 App 已运行时再次打开它 —— 用于找回被隐藏的图标
@@ -855,12 +1048,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        UNUserNotificationCenter.current().delegate = self
+        Notifier.requestAuth()
         refreshIcon()
         watcher.start()
+        // 双保险：IOKit 电源回调之外，再监听一路系统唤醒通知，
+        // 任一先到即触发检测（Healer 串行队列 + 冷却期保证不会重复修复）
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { _ in
+            DispatchQueue.global().async {
+                Healer.shared.checkAndHeal(reason: "wake")
+            }
+        }
         LaunchAtLogin.upgradeIfNeeded()
         // 非后台自启（即用户主动打开）时，确保图标可见，避免隐藏后找不回来
         if !CommandLine.arguments.contains("--background") { unhideIfNeeded() }
-        HealthCache.shared.refresh(Config.load().dev)
+        var cfg0 = Config.load()
+        if cfg0.migrateV23() { cfg0.save() }
+        HealthCache.shared.refresh(cfg0.targets.map(\.dev))
         if !FileManager.default.fileExists(atPath: Config.path) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.firstRunGuide() }
         }
@@ -869,7 +1074,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func refreshIcon() {
         guard let btn = statusItem.button else { return }
         let cfg = Config.load()
-        let healthy = HealthCache.shared.value(for: cfg.dev)
+        let healthy = HealthCache.shared.value(for: cfg.targets.map(\.dev))
 
         // 显示模式：强制显示窗口 > 隐藏 / 仅异常时显示
         if let until = forceShowUntil, Date() < until {
@@ -882,15 +1087,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .always:      statusItem.isVisible = true
             }
         }
-        let name = healthy ? "antenna.radiowaves.left.and.right"
+        let healing = Healer.shared.healing
+        if healing { statusItem.isVisible = true }   // 修复中永远露面，让用户看到过程
+        let name = healing ? "arrow.triangle.2.circlepath"
+                 : healthy ? "antenna.radiowaves.left.and.right"
                            : "antenna.radiowaves.left.and.right.slash"
         var img = NSImage(systemSymbolName: name, accessibilityDescription: "LTE Guard")
         if img == nil {   // 旧系统缺该符号时回退
             img = NSImage(systemSymbolName: healthy ? "wifi" : "wifi.slash", accessibilityDescription: "LTE Guard")
         }
         img?.isTemplate = true
-        if let img = img { btn.image = img; btn.title = "" }
-        else { btn.image = nil; btn.title = healthy ? "LTE" : "LTE!" }
+        let flashing = flashUntil.map { Date() < $0 } ?? false
+        if !flashing { flashUntil = nil }
+        if let img = img { btn.image = img; if !flashing { btn.title = "" } }
+        else { btn.image = nil; btn.title = flashing ? btn.title : healing ? "LTE…" : healthy ? "LTE" : "LTE!" }
         buildMenu()
     }
 
@@ -914,14 +1124,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
         m.addItem(withTitle: T(1), action: nil, keyEquivalent: "").isEnabled = false
 
-        let health = HealthCache.shared.value(for: cfg.dev)
-        let target = item(T(2, cfg.service.isEmpty ? cfg.dev : cfg.service, health ? T(3) : T(4)), nil,
-                          symbol: health ? "checkmark.circle" : "exclamationmark.triangle")
-        target.isEnabled = false
-        m.addItem(target)
-        let method = item(T(5, cfg.methodText), nil)
-        method.isEnabled = false
-        m.addItem(method)
+        _ = HealthCache.shared.value(for: cfg.targets.map(\.dev))   // 触发节流刷新
+        for t in cfg.targets {
+            let h = HealthCache.shared.healthy(t.dev)
+            let row = item(T(2, t.display, h ? T(3) : T(4)), nil,
+                           symbol: h ? "checkmark.circle" : "exclamationmark.triangle")
+            row.toolTip = T(5, t.methodText)
+            row.isEnabled = false
+            m.addItem(row)
+        }
+        if cfg.targets.isEmpty {
+            let row = item(T(7), nil, symbol: "questionmark.circle")
+            row.isEnabled = false
+            m.addItem(row)
+        }
         m.addItem(.separator())
 
         m.addItem(.separator())
@@ -1001,38 +1217,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: 动作
 
+    /// 治愈对象：多选。每个勾选的网卡都被独立守护、独立修复。
     @objc func pickTarget() {
         let services = Sys.networkServices()
         guard !services.isEmpty else { notify(T(23)); return }
 
+        var cfg = Config.load()
         let alert = NSAlert()
         alert.messageText = T(15)
-        alert.informativeText = T(16)
+        alert.informativeText = T(108)
         alert.alertStyle = .informational
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 300, height: 26))
+
+        let rowH = 24
+        let W = 340
+        let contentH = services.count * rowH + 4
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: min(300, contentH)))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+        let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16, height: contentH))
+        var boxes: [NSButton] = []
+        var y = contentH - rowH
         for (svc, dev) in services {
             let usb = Sys.usbIDs(for: dev) != nil ? "  · USB" : ""
-            popup.addItem(withTitle: "\(svc)  [\(dev)]\(usb)")
+            let cb = NSButton(checkboxWithTitle: "\(svc)  [\(dev)]\(usb)", target: nil, action: nil)
+            cb.state = cfg.targets.contains { $0.dev == dev } ? .on : .off
+            cb.frame = NSRect(x: 4, y: y, width: W - 24, height: 20)
+            doc.addSubview(cb)
+            boxes.append(cb)
+            y -= rowH
         }
-        let cur = Config.load().dev
-        if let idx = services.firstIndex(where: { $0.1 == cur }) { popup.selectItem(at: idx) }
-        alert.accessoryView = popup
+        scroll.documentView = doc
+        alert.accessoryView = scroll
         alert.addButton(withTitle: T(17))
         alert.addButton(withTitle: T(18))
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        let (svc, dev) = services[popup.indexOfSelectedItem]
-        var cfg = Config.load()
-        let oldDev = cfg.dev
-        cfg.dev = dev
-        cfg.service = svc
-        if let (v, p) = Sys.usbIDs(for: dev) { cfg.usbVID = v; cfg.usbPID = p }
-        else { cfg.usbVID = ""; cfg.usbPID = "" }
-        if dev != oldDev { cfg.postCmd = "" }
+        var picked: [Target] = []
+        for (i, (svc, dev)) in services.enumerated() where boxes[i].state == .on {
+            var t = Target(dev: dev, service: svc)
+            if let (v, p) = Sys.usbIDs(for: dev) { t.vid = v; t.pid = p }
+            picked.append(t)
+        }
+        cfg.targets = picked
         cfg.save()
-        Sys.log(T(98, svc, dev, cfg.methodText))
-        notify(T(21, svc, cfg.methodText))
+        let names = picked.map(\.display).joined(separator: ", ")
+        Sys.log(T(109, names))
+        notify(T(109, names))
         refreshIcon()
     }
 
@@ -1061,52 +1293,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         a.informativeText = I18n.shared.paragraph(T(54))
 
         let W = 480
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 330))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 430))
 
-        // 命令文本框
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 190, width: W, height: 140))
-        let tv = NSTextView(frame: scroll.bounds)
-        tv.string = cfg.postCmd
-        tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        tv.isAutomaticQuoteSubstitutionEnabled = false
-        tv.isAutomaticDashSubstitutionEnabled = false
-        tv.isAutomaticTextReplacementEnabled = false
-        tv.isRichText = false
-        tv.alignment = .left
-        tv.baseWritingDirection = .leftToRight
-        tv.isEditable = true
-        tv.isSelectable = true
-        tv.allowsUndo = true
-        tv.autoresizingMask = [.width]
-        tv.isVerticallyResizable = true
-        tv.textContainer?.widthTracksTextView = true
-        scroll.documentView = tv
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        container.addSubview(scroll)
+        func makeCmdBox(_ frame: NSRect, text: String) -> (NSScrollView, NSTextView) {
+            let scroll = NSScrollView(frame: frame)
+            let tv = NSTextView(frame: scroll.bounds)
+            tv.string = text
+            tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            tv.isAutomaticQuoteSubstitutionEnabled = false
+            tv.isAutomaticDashSubstitutionEnabled = false
+            tv.isAutomaticTextReplacementEnabled = false
+            tv.isRichText = false
+            tv.alignment = .left
+            tv.baseWritingDirection = .leftToRight
+            tv.isEditable = true
+            tv.isSelectable = true
+            tv.allowsUndo = true
+            tv.autoresizingMask = [.width]
+            tv.isVerticallyResizable = true
+            tv.textContainer?.widthTracksTextView = true
+            scroll.documentView = tv
+            scroll.hasVerticalScroller = true
+            scroll.borderType = .bezelBorder
+            return (scroll, tv)
+        }
+        func sectionLabel(_ text: String, y: CGFloat) -> NSTextField {
+            let lbl = NSTextField(labelWithString: text)
+            lbl.font = NSFont.boldSystemFont(ofSize: 11)
+            lbl.textColor = .secondaryLabelColor
+            lbl.frame = NSRect(x: 0, y: y, width: CGFloat(W), height: 16)
+            return lbl
+        }
 
-        let editor = PostCmdEditor(textView: tv)
+        // ── 上：发现断联时执行（此刻网络不可用）──
+        container.addSubview(sectionLabel(T(102), y: 412))
+        let (preScroll, preTV) = makeCmdBox(NSRect(x: 0, y: 344, width: W, height: 64), text: cfg.preCmd)
+        container.addSubview(preScroll)
+
+        // ── 中：恢复后执行 ──
+        container.addSubview(sectionLabel(T(103), y: 320))
+        let (postScroll, postTV) = makeCmdBox(NSRect(x: 0, y: 226, width: W, height: 90), text: cfg.postCmd)
+        container.addSubview(postScroll)
+
+        let editor = PostCmdEditor(preTV: preTV, postTV: postTV)
         self.postCmdEditor = editor   // 持有，否则 target/delegate（弱引用）会被立即释放，勾选与文本回调全部失效
 
         // ── 勾选区（可滚动）──
-        let listScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 180))
+        let listScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 218))
         listScroll.hasVerticalScroller = true
         listScroll.borderType = .noBorder
         listScroll.drawsBackground = false
 
         var presets: [(String?, [PresetCmd])] = []
 
-        // 常用（固定）
+        // 常用（固定）。「打开网络设置」归断联时执行——第一时间打开面板观察修复过程；
+        // 「提示恢复」「验证能否上网」已内建为原生通知，不再作为 shell 预设。
         let common: [PresetCmd] = [
             PresetCmd(title: T(80),
-                      command: "open -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane",
-                      hint: "Network.prefPane"),
-            PresetCmd(title: T(86),
-                      command: "curl -s -m 5 -o /dev/null http://captive.apple.com && echo online",
-                      hint: "captive.apple.com"),
-            PresetCmd(title: T(81),
-                      command: "osascript -e 'display notification \"\(T(82))\" with title \"LTE Guard\"'",
-                      hint: "display notification"),
+                      command: "open \"x-apple.systempreferences:com.apple.Network-Settings.extension\"",
+                      hint: "Network-Settings", pre: true),
             PresetCmd(title: T(83), command: "afplay /System/Library/Sounds/Glass.aiff",
                       hint: "afplay"),
             PresetCmd(title: T(92),
@@ -1115,14 +1360,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ]
         presets.append((T(84), common))
 
-        // 检测到的（动态）
+        // 检测到的（动态）——覆盖所有治愈对象的接口
         var found: [PresetCmd] = []
-        for (label, dev) in Detect.agentsBound(to: cfg.dev) {
-            found.append(PresetCmd(
-                title: T(87, label, dev),
-                command: "launchctl kickstart -k gui/$(id -u)/\(label)",
-                hint: label,
-                tooltip: T(91)))
+        var seenAgents = Set<String>()
+        for t in cfg.targets {
+            for (label, dev) in Detect.agentsBound(to: t.dev) where seenAgents.insert(label).inserted {
+                found.append(PresetCmd(
+                    title: T(87, label, dev),
+                    command: "launchctl kickstart -k gui/$(id -u)/\(label)",
+                    hint: label,
+                    tooltip: T(91)))
+            }
         }
         for vol in Detect.networkVolumes() {
             let name = (vol as NSString).lastPathComponent
@@ -1180,11 +1428,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard a.runModal() == .alertFirstButtonReturn else { return }
 
         // 文本即最终结果——勾选已实时写入，无需再合并
-        cfg.postCmd = editor.currentText
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
+        func clean(_ s: String) -> String {
+            s.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+        cfg.preCmd = clean(editor.currentPre)
+        cfg.postCmd = clean(editor.currentPost)
         cfg.save()
         notify(T(55))
     }
@@ -1369,6 +1620,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func notify(_ msg: String) {
-        Sys.run("osascript -e 'display notification \"\(msg)\" with title \"LTE Guard\"' >/dev/null 2>&1", wait: false)
+        Notifier.post(msg)
     }
 }
