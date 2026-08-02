@@ -34,6 +34,14 @@ Anyone whose Mac gets online through a **USB network adapter**:
 
 Same symptom every time: close the lid once, come back, no network — the LED is still on and **only a physical replug fixes it**.
 
+### Not just network adapters
+
+The same "dead after wake, only a replug fixes it" behaviour shows up across other USB gear too — [Apple's own forums](https://discussions.apple.com/thread/7745583), [MacRumors](https://forums.macrumors.com/threads/mac-mini-m1-usb-ports-not-working-after-wake-from-sleep.2326616/) and the [Plugable knowledge base](https://kb.plugable.com/docking-stations-and-video/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos) are full of reports about audio interfaces, webcams, external drives, card readers and individual components inside docks.
+
+Since the underlying mechanism is identical, the menu includes **Reset a USB device**: it lists every connected USB device and replugs the one you pick in software. Devices other than the guarded adapter are triggered manually — automatic detection only covers networking, where "reachable or not" is a clear test, whereas a webcam or audio interface is hard to probe reliably.
+
+> ⚠️ For storage devices, stop any reads/writes and eject first — otherwise you risk data loss.
+
 ## Found this by searching?
 
 These all describe the same thing, and this tool exists for it:
@@ -67,7 +75,7 @@ LTE Guard is a watchdog that sits in your menu bar and listens for system wake e
 - 🎯 **Vendor-agnostic** — VID/PID are detected when you pick the adapter; there is no built-in device list
 - 🔌 **Works with non-USB adapters too** — falls back to restarting the network service
 - 🛠 **Post-recovery hook** — run your own command after recovery (reconnect a proxy, redial, …)
-- 🌍 **53 languages** — follows your system language, switchable from the menu
+- 🌍 **62 languages** — follows your system language, switchable from the menu
 - 🪶 **Zero dependencies** — a single app; no daemons to install, no Homebrew required
 
 ## Install
@@ -123,9 +131,10 @@ Other menu items:
 | Launch at login | Toggle any time (works for DMG installs too) |
 | Run diagnostics | Self-check with concrete fixes |
 | Command after recovery… | Optional hook: run a shell command once the adapter is back (empty = do nothing) |
+| Reset a USB device | Lists all USB devices and software-replugs the one you choose — works for audio interfaces, webcams, drives and docks too |
 | Menu bar icon | Always show / only when there is a problem / hidden (**to bring it back, just open the app again from Applications**) |
 | Open config folder | Reveals the config file, log and language folder in Finder |
-| Language | Switch among 53 languages; the submenu can open the language folder directly |
+| Language | Switch among 62 languages; the submenu can edit the current language or open the language folder |
 
 ## Right-to-left languages (RTL)
 
@@ -139,9 +148,7 @@ Because language switching is implemented in-app (reading `lang/*.ini`) rather t
 
 ## Localization
 
-**28 languages** ship with the app, covering the markets with the highest Mac share as well as regions that rely heavily on mobile broadband:
-
-Simplified/Traditional Chinese · Japanese · Korean · Swedish · Norwegian Bokmål · Danish · Finnish · English · German · French · Dutch · Italian · Polish · Czech · Russian · Ukrainian · Spanish (incl. Mexico/Argentina) · Portuguese (incl. Brazil) · Arabic · Hebrew · Turkish · Vietnamese · Indonesian · Thai
+**62 languages** ship with the app. The menu lists Chinese and its varieties first, then other languages by code.
 
 The app follows your system language at startup; you can also switch it from the **Language** menu (the choice is remembered).
 

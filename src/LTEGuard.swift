@@ -114,6 +114,27 @@ enum Sys {
         return result
     }
 
+    /// 枚举所有已连接的 USB 设备 -> [(vid, pid, 显示名)]
+    static func usbDevices() -> [(String, String, String)] {
+        var iter: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault,
+                IOServiceMatching(kIOUSBDeviceClassName), &iter) == KERN_SUCCESS else { return [] }
+        defer { IOObjectRelease(iter) }
+        var out: [(String, String, String)] = []
+        while case let dev = IOIteratorNext(iter), dev != 0 {
+            defer { IOObjectRelease(dev) }
+            func prop(_ k: String) -> Any? {
+                IORegistryEntryCreateCFProperty(dev, k as CFString, nil, 0)?.takeRetainedValue()
+            }
+            guard let v = prop("idVendor") as? Int, let p = prop("idProduct") as? Int else { continue }
+            let name = (prop("USB Product Name") as? String)
+                ?? (prop("USB Vendor Name") as? String)
+                ?? String(format: "%04x:%04x", v, p)
+            out.append((String(format: "%04x", v), String(format: "%04x", p), name))
+        }
+        return out.sorted { $0.2.localizedStandardCompare($1.2) == .orderedAscending }
+    }
+
     /// 接口 -> USB (VID, PID)，非 USB 返回 nil
     static func usbIDs(for bsd: String) -> (String, String)? {
         guard let match = IOServiceMatching("IONetworkInterface") as NSMutableDictionary? else { return nil }
@@ -670,6 +691,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(item(T(29), #selector(showDiagnosis), symbol: "stethoscope"))
         m.addItem(item(T(53), #selector(editPostCmd), symbol: "terminal"))
 
+        // 重置任意 USB 设备（音频接口、摄像头、硬盘、扩展坞等同样会睡眠后假死）
+        let usbItem = item(T(75), nil, symbol: "cable.connector")
+        let usbMenu = NSMenu()
+        usbMenu.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
+        let hint = NSMenuItem(title: T(76), action: nil, keyEquivalent: "")
+        hint.isEnabled = false
+        usbMenu.addItem(hint)
+        usbMenu.addItem(.separator())
+        for (vid, pid, name) in Sys.usbDevices() {
+            let di = NSMenuItem(title: "\(name)  (\(vid):\(pid))",
+                                action: #selector(resetUSBDevice(_:)), keyEquivalent: "")
+            di.target = self
+            di.representedObject = "\(vid) \(pid) \(name)"
+            usbMenu.addItem(di)
+        }
+        usbItem.submenu = usbMenu
+        usbItem.isEnabled = true
+        m.addItem(usbItem)
+
         // 菜单栏图标显示方式
         let iconItem = item(T(48), nil, symbol: "menubar.rectangle")
         let iconMenu = NSMenu()
@@ -788,6 +828,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cfg.postCmd = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.save()
         notify(T(55))
+    }
+
+    /// 对任意 USB 设备执行软件拔插。用于音频接口、摄像头、外置硬盘、扩展坞等
+    /// 同样会在睡眠唤醒后假死、平时只能物理拔插的设备。
+    @objc func resetUSBDevice(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String else { return }
+        let parts = raw.split(separator: " ", maxSplits: 2).map(String.init)
+        guard parts.count >= 3 else { return }
+        let (vid, pid, name) = (parts[0], parts[1], parts[2])
+
+        let a = NSAlert()
+        a.messageText = T(77, name)
+        a.informativeText = I18n.shared.paragraph(T(78))
+        a.alertStyle = .warning
+        a.addButton(withTitle: T(17))
+        a.addButton(withTitle: T(18))
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            Sys.log("[manual] reset USB device \(name) (\(vid):\(pid))")
+            let out = Sys.run("'\(Sys.usbresetPath)' \(vid) \(pid) 2>&1")
+            Sys.log(out)
+            DispatchQueue.main.async { self.notify(T(79, name)) }
+        }
     }
 
     @objc func toggleLaunch() {

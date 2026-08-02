@@ -36,7 +36,7 @@ LTE Guard réside dans la barre des menus et écoute les événements de réveil
 - 🎯 **Indépendant de la marque** — VID/PID détectés automatiquement, aucune liste de périphériques
 - 🔌 **Fonctionne aussi hors USB** — bascule automatiquement sur le redémarrage du service réseau
 - 🛠 **Commande après récupération** — redémarrer un proxy, relancer une connexion…
-- 🌍 **28 langues** — suit la langue du système, modifiable depuis le menu
+- 🌍 **62 langues** — suit la langue du système, modifiable depuis le menu
 - 🪶 **Zéro dépendance** — une seule app, aucun démon, pas de Homebrew
 
 ## Installation
@@ -58,6 +58,12 @@ xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 En cas de souci, utilisez **Lancer le diagnostic** dans le menu.
 
 ---
+
+## À propos de l'auteur
+
+**Ocean Tang (唐海洋)** — avocat à Shenzhen, en Chine (dans la profession depuis 2011, inscrit depuis 2012). Contentieux commercial et arbitrage, défense pénale, droit du travail, conseil juridique permanent ; plus de 500 dossiers traités.
+
+CCNA en 2002, CIW Security Analyst en 2003, et des années à écrire ses propres outils de gestion de dossiers en VBA + Excel. Cette application a une origine tout aussi concrète : il a converti un émetteur vidéo DJI de première génération en liaison LTE pour s'en servir comme modem 4G — et devait débrancher puis rebrancher la clé après chaque fermeture d'écran avant que le réseau ne revienne. Excédé, il l'a écrite avec Claude.
 
 Documentation complète (matrice de compatibilité, fichier de configuration, contribuer une traduction) : [English README](README.en.md).
 

@@ -36,7 +36,7 @@ LTE Guard iba ku murongo w'ibikubiyemo kandi itega amatwi igihe sisitemu ikanguk
 - 🎯 **Ntibireba ubwoko** — VID/PID bimenyekana igihe uhitamo, nta rutonde rw'ibikoresho rwabitswe
 - 🔌 **Bikora no ku bitari USB** — bihita bikoresha kongera gutangiza serivisi y'urusobe
 - 🛠 **Itegeko nyuma yo gusana** — urugero, kongera gutangiza proxy
-- 🌍 **Indimi 53** — bikurikira ururimi rwa sisitemu, ushobora no guhindura mu bikubiyemo
+- 🌍 **Indimi 62** — bikurikira ururimi rwa sisitemu, ushobora no guhindura mu bikubiyemo
 - 🪶 **Nta bindi bikenewe** — porogaramu imwe gusa, nta serivisi z'inyuma, nta Homebrew
 
 ## Kwinjiza
@@ -58,6 +58,12 @@ xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 Igihe hari ikibazo, hitamo **Koresha isuzuma** mu bikubiyemo.
 
 ---
+
+## Ku birebana n'uwabikoze
+
+**Ocean Tang (唐海洋)** — umunyamategeko wo mu mujyi wa Shenzhen mu Bushinwa (yatangiye uyu mwuga mu 2011). Akora ku manza z'ubucuruzi n'ubukemurampaka, kwiregura mu manza nshinjabyaha, amakimbirane y'akazi, no gutanga inama z'amategeko ku bigo; yamaze gukora imanza zirenga 500.
+
+Yabonye CCNA mu 2002 na CIW Security Analyst mu 2003, kandi amaze imyaka yandika ibikoresho bye bwite byo gucunga imanza akoresheje VBA + Excel. Iyi porogaramu na yo ifite inkomoko isobanutse: yahinduye DJI y'igisekuru cya mbere ikoresha LTE, ayikoresha nka modem ya 4G — ariko buri gihe iyo yafungaga ikanuye, byabaga ngombwa gukuramo no kongera gushyiramo USB kugira ngo umurongo ugaruke. Byaramunaniye, ahita ayikorana na Claude.
 
 Inyandiko zuzuye (urutonde rw'ibikoresho bishyigikiwe, dosiye y'igenamiterere, uko watanga ubusemuzi): [English README](README.en.md).
 
