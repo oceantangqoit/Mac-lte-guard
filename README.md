@@ -9,6 +9,10 @@
   <sub>macOS 菜单栏小工具 · Swift 原生 · 零依赖 · MIT</sub>
 </p>
 
+<p align="center">
+  <b>简体中文</b> · <a href="README.en.md">English</a>
+</p>
+
 ---
 
 ## 问题
@@ -44,8 +48,8 @@ xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 **方式二：自己构建**（需 Xcode 命令行工具）
 
 ```bash
-git clone https://github.com/<你的用户名>/lte-guard.git
-cd lte-guard && ./build.sh
+git clone https://github.com/oceantangqoit/Mac-lte-guard.git
+cd Mac-lte-guard && ./build.sh
 ```
 
 产物在 `dist/`。图标渲染需要 `brew install librsvg`，不装也能构建（App 使用默认图标）。
