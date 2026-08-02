@@ -158,7 +158,7 @@ Ibindi biri mu bikubiyemo:
 | Ikintu | Icyo gikora |
 |---|---|
 | Suzuma usane ubu | Gutangiza rimwe n'intoki |
-| Reba log | Ifungura `~/.lte-wake.log` |
+| Reba log | Ifungura `~/Library/Application Support/LTE Guard/lte-guard.log` |
 | Gutangira igihe mudasobwa itangiye | Switch, ushobora kuyihindura igihe icyo ari cyo cyose (n'abinjije bakoresheje DMG barabikoresha) |
 | Koresha isuzuma | Kwisuzuma buri kintu kimwe kimwe no gutanga igisubizo |
 | Itegeko rikorwa nyuma yo gusanwa… | Amategeko y'ibyiciro bibiri: «iyo umurongo ucitse» (urugero gufungura urupapuro rw'urusobe ukareba uko gusana bigenda) na «nyuma yo gusanwa» (urugero kongera guhuza proxy) — itegeko rimwe kuri buri murongo, akorwa akurikirana; hari n'akunze gukoreshwa wihitiramo ukanda gusa |
@@ -208,7 +208,7 @@ author=……
 
 ## Dosiye y'igenamiterere
 
-`~/.lte-guard.conf` (porogaramu irayicunga yonyine, ariko ushobora no kuyihindura n'intoki; igenamiterere rya kera ry'igikoresho kimwe rivugururwa ryonyine):
+`~/Library/Application Support/LTE Guard/lte-guard.conf` (porogaramu irayicunga yonyine, ariko ushobora no kuyihindura n'intoki; igenamiterere rya kera ry'igikoresho kimwe rivugururwa ryonyine):
 
 ```sh
 # igikoresho kimwe cyo gusanwa kuri buri murongo, ibice bitandukanyijwe na tab: igikoresho, izina rya serivisi, USB_VID, USB_PID
@@ -279,7 +279,7 @@ Ibikoresho byinshi bisanwa buri kimwe ukwacyo, byose icyarimwe. Ikiruhuko cy'ama
 | **Guhuza na internet ya iPhone binyuze kuri USB** | Ni igikoresho cya NCM cya Apple ubwayo, kandi ubusanzwe sisitemu ikigarura yonyine; niba wahuye n'ikibazo nk'iki, iyi porogaramu na yo yagifasha |
 | **Wi-Fi, umwenge wa Thunderbolt, n'ibindi bitari USB** | Bihita bikoresha «kongera gutangiza serivisi y'urusobe». Bikemura guhagarara ku rwego rwa porogaramu, ariko ntibikemura guhagarara ku rwego rwa driver |
 
-Niba igikoresho cyawe kitari muri uru rutonde, **fungura Issue umbwire ibyakubayeho** (ubwoko, `USB VID:PID`, agace ka `~/.lte-wake.log`), byaba byaragenze neza cyangwa nabi — ni ryo suzuma rikenewe cyane muri iki gihe.
+Niba igikoresho cyawe kitari muri uru rutonde, **fungura Issue umbwire ibyakubayeho** (ubwoko, `USB VID:PID`, agace ka `~/Library/Application Support/LTE Guard/lte-guard.log`), byaba byaragenze neza cyangwa nabi — ni ryo suzuma rikenewe cyane muri iki gihe.
 
 ## Impamvu tutakoze «kuguma ku murongo mu gihe cyo gusinzira»
 
@@ -302,7 +302,7 @@ Muri verisiyo za mbere iyi switch yarahari, ariko ubugeragezwa bwerekanye ko ida
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
 rm -rf /Applications/LTEGuard.app
 ```
 

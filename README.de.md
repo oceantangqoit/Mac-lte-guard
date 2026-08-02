@@ -181,7 +181,7 @@ Die übrigen Menüpunkte:
 | Punkt | Funktion |
 |---|---|
 | Jetzt prüfen und reparieren | Löst den Vorgang einmalig manuell aus |
-| Protokoll anzeigen | Öffnet `~/.lte-wake.log` |
+| Protokoll anzeigen | Öffnet `~/Library/Application Support/LTE Guard/lte-guard.log` |
 | Bei der Anmeldung starten | Schalter, jederzeit änderbar (auch bei Installation per DMG verfügbar) |
 | Diagnose ausführen | Prüft alle Punkte und nennt die passende Abhilfe |
 | Befehl nach der Wiederherstellung … | Hooks in zwei Phasen: „bei erkannter Unterbrechung“ (z. B. die Netzwerkeinstellungen öffnen und der Reparatur zusehen) und „nach der Wiederherstellung“ (z. B. Proxy neu verbinden) – ein Befehl pro Zeile, der Reihe nach ausgeführt; häufig gebrauchte Aktionen lassen sich einfach ankreuzen |
@@ -231,7 +231,7 @@ author=……
 
 ## Konfigurationsdatei
 
-`~/.lte-guard.conf` (wird von der App automatisch gepflegt, kann aber auch von Hand bearbeitet werden; alte Konfigurationen mit nur einem Überwachungsziel werden automatisch übernommen):
+`~/Library/Application Support/LTE Guard/lte-guard.conf` (wird von der App automatisch gepflegt, kann aber auch von Hand bearbeitet werden; alte Konfigurationen mit nur einem Überwachungsziel werden automatisch übernommen):
 
 ```sh
 # ein Heilungsziel pro Zeile, durch Tabulatoren getrennt: Schnittstelle, Dienstname, USB_VID, USB_PID
@@ -302,7 +302,7 @@ Mehrere Adapter werden unabhängig voneinander und parallel repariert. Die Abkü
 | **iPhone-USB-Tethering** | Es handelt sich um ein Apple-eigenes NCM-Gerät, das sich in der Regel selbst erholt; tritt dasselbe Problem auf, ist dieses Werkzeug prinzipbedingt ebenfalls geeignet |
 | **Nicht-USB-Schnittstellen wie WLAN oder Thunderbolt-Ethernet** | Es wird automatisch auf „Netzwerkdienst neu starten“ zurückgegriffen. Das behebt Hänger auf Softwareebene, nicht aber Blockaden auf Treiberebene |
 
-Steht Ihr Gerät nicht in der Tabelle, **freue ich mich über ein Issue mit Ihrem Ergebnis** (Modell, `USB VID:PID`, Ausschnitt aus `~/.lte-wake.log`) – ganz gleich, ob es geklappt hat oder nicht. Das ist derzeit die wertvollste Rückmeldung.
+Steht Ihr Gerät nicht in der Tabelle, **freue ich mich über ein Issue mit Ihrem Ergebnis** (Modell, `USB VID:PID`, Ausschnitt aus `~/Library/Application Support/LTE Guard/lte-guard.log`) – ganz gleich, ob es geklappt hat oder nicht. Das ist derzeit die wertvollste Rückmeldung.
 
 ## Warum es kein „Verbindung im Ruhezustand halten“ gibt
 
@@ -325,7 +325,7 @@ Frühere Versionen hatten diesen Schalter; nachdem sich in der Praxis zeigte, da
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
 rm -rf /Applications/LTEGuard.app
 ```
 

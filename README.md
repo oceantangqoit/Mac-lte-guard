@@ -187,7 +187,7 @@ cd Mac-lte-guard && ./build.sh
 | 项 | 作用 |
 |---|---|
 | 立即检测并修复 | 手动触发一次 |
-| 查看日志 | 打开 `~/.lte-wake.log` |
+| 查看日志 | 打开 `~/Library/Application Support/LTE Guard/lte-guard.log` |
 | 开机启动 | 开关，随时可改（DMG 安装的用户也能用） |
 | 运行诊断 | 逐项自检并给出对策 |
 | 恢复后执行命令… | 两栏命令钩子：「发现断联时执行」（如打开网络面板看修复过程）与「恢复后执行」（如重连代理），每行一条按顺序执行；另有常用命令可勾选 |
@@ -237,7 +237,7 @@ author=……
 
 ## 配置文件
 
-`~/.lte-guard.conf`（App 自动维护，也可手改；旧版单对象配置会自动升级）：
+`~/Library/Application Support/LTE Guard/lte-guard.conf`（App 自动维护，也可手改；旧版单对象配置会自动升级）：
 
 ```sh
 # 每行一个治愈对象，字段以制表符分隔：接口 服务名 USB_VID USB_PID
@@ -332,7 +332,7 @@ USBDeviceReEnumerate       → 非 USB 则 networksetup 重启服务
 | **iPhone USB 个人热点** | 属于 Apple 自家 NCM 设备，通常由系统自行恢复；如遇同样问题，本工具原理上同样适用 |
 | **Wi-Fi、雷雳网口等非 USB 接口** | 自动降级为「重启网络服务」。能解决软件层假死，解决不了驱动级卡死 |
 
-如果你的设备不在上表中，**欢迎开一个 Issue 告诉我结果**（型号、`USB VID:PID`、`~/.lte-wake.log` 片段），无论成功还是失败——这是目前最需要的反馈。
+如果你的设备不在上表中，**欢迎开一个 Issue 告诉我结果**（型号、`USB VID:PID`、`~/Library/Application Support/LTE Guard/lte-guard.log` 片段），无论成功还是失败——这是目前最需要的反馈。
 
 ## 为什么不做「睡眠时保持联网」
 
@@ -368,7 +368,7 @@ USBDeviceReEnumerate       → 非 USB 则 networksetup 重启服务
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
 rm -rf /Applications/LTEGuard.app
 ```
 

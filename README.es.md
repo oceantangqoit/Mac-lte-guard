@@ -174,7 +174,7 @@ Resto de opciones del menú:
 | Opción | Función |
 |---|---|
 | Comprobar y reparar ahora | Lanza una comprobación manual |
-| Ver registro | Abre `~/.lte-wake.log` |
+| Ver registro | Abre `~/Library/Application Support/LTE Guard/lte-guard.log` |
 | Arranque automático | Interruptor, modificable en cualquier momento (también si instalaste desde el DMG) |
 | Ejecutar diagnóstico | Autocomprobación punto por punto con su solución |
 | Comando tras la recuperación… | Enganches en dos fases: «al detectar el corte» (p. ej. abrir el panel de Red para ver la reparación) y «tras la recuperación» (p. ej. reconectar un proxy) — un comando por línea, ejecutados en orden, más opciones habituales que basta con marcar |
@@ -224,7 +224,7 @@ author=……
 
 ## Archivo de configuración
 
-`~/.lte-guard.conf` (lo mantiene la app automáticamente, pero también puedes editarlo a mano; las configuraciones antiguas de un solo objetivo se actualizan solas):
+`~/Library/Application Support/LTE Guard/lte-guard.conf` (lo mantiene la app automáticamente, pero también puedes editarlo a mano; las configuraciones antiguas de un solo objetivo se actualizan solas):
 
 ```sh
 # un objetivo a curar por línea, campos separados por tabuladores: interfaz, nombre del servicio, USB_VID, USB_PID
@@ -295,7 +295,7 @@ Varios adaptadores se reparan por separado y en paralelo. El enfriamiento de 15 
 | **Compartir Internet por USB del iPhone** | Es un dispositivo NCM de la propia Apple y normalmente el sistema lo recupera solo; si te ocurre lo mismo, esta herramienta también es aplicable por principio |
 | **Wi-Fi, Ethernet Thunderbolt y otras interfaces no USB** | Recurre automáticamente a «reiniciar el servicio de red». Resuelve el cuelgue a nivel de software, pero no un bloqueo a nivel de controlador |
 
-Si tu dispositivo no está en la tabla, **abre un Issue y cuéntame el resultado** (modelo, `USB VID:PID`, fragmento de `~/.lte-wake.log`), tanto si funciona como si no: es ahora mismo la aportación más necesaria.
+Si tu dispositivo no está en la tabla, **abre un Issue y cuéntame el resultado** (modelo, `USB VID:PID`, fragmento de `~/Library/Application Support/LTE Guard/lte-guard.log`), tanto si funciona como si no: es ahora mismo la aportación más necesaria.
 
 ## Por qué no se implementa «mantener la conexión durante la suspensión»
 
@@ -318,7 +318,7 @@ Las primeras versiones tenían ese interruptor y se eliminó al comprobar que no
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
 rm -rf /Applications/LTEGuard.app
 ```
 

@@ -181,7 +181,7 @@ cd Mac-lte-guard && ./build.sh
 | 項目 | 説明 |
 |---|---|
 | 今すぐ検査して修復 | 手動で一度実行します |
-| ログを表示 | `~/.lte-wake.log` を開きます |
+| ログを表示 | `~/Library/Application Support/LTE Guard/lte-guard.log` を開きます |
 | ログイン時に起動 | オン／オフをいつでも変更できます（DMG でインストールした場合も利用可能） |
 | 診断を実行 | 各項目を自己点検し、対処法を示します |
 | 復旧後に実行するコマンド… | 2 段階のフック。「切断を検知したとき」（例：ネットワークパネルを開いて修復の様子を眺める）と「復旧したあと」（例：プロキシの再接続）。コマンドは 1 行に 1 つ、上から順に実行され、よく使うものはチェックを入れるだけで設定できます |
@@ -231,7 +231,7 @@ author=……
 
 ## 設定ファイル
 
-`~/.lte-guard.conf`（アプリが自動管理しますが、手動編集も可能です。旧版の単一対象の設定は自動的に引き継がれます）:
+`~/Library/Application Support/LTE Guard/lte-guard.conf`（アプリが自動管理しますが、手動編集も可能です。旧版の単一対象の設定は自動的に引き継がれます）:
 
 ```sh
 # 1 行につき 1 つの見守り対象。タブ区切り：インターフェース、サービス名、USB_VID、USB_PID
@@ -302,7 +302,7 @@ POST_CMD を実行 → そのアダプタ経由で外部接続を実測 → 本�
 | **iPhone の USB テザリング** | Apple 純正の NCM デバイスで、通常は macOS 自身が復旧します。同じ症状が出る場合は本ツールも同様に適用できます |
 | **Wi-Fi、Thunderbolt LAN など USB 以外のインターフェース** | 自動的に「ネットワークサービス再起動」にフォールバックします。ソフトウェア層のハングには有効ですが、ドライバ層の停止は解決できません |
 
-お使いの機器が上の表にない場合は、**成否にかかわらず Issue で結果をお知らせください**（機種、`USB VID:PID`、`~/.lte-wake.log` の該当部分）。現時点で最も有用な貢献です。
+お使いの機器が上の表にない場合は、**成否にかかわらず Issue で結果をお知らせください**（機種、`USB VID:PID`、`~/Library/Application Support/LTE Guard/lte-guard.log` の該当部分）。現時点で最も有用な貢献です。
 
 ## 「スリープ中も接続を維持」を実装しない理由
 
@@ -325,7 +325,7 @@ POST_CMD を実行 → そのアダプタ経由で外部接続を実測 → 本�
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
 rm -rf /Applications/LTEGuard.app
 ```
 

@@ -63,7 +63,7 @@ struct Config {
     var usbVID: String { targets.first?.vid ?? "" }
     var usbPID: String { targets.first?.pid ?? "" }
 
-    static let path = NSHomeDirectory() + "/.lte-guard.conf"
+    static var path: String { I18n.appSupportDir + "/lte-guard.conf" }
 
     static func load() -> Config {
         var c = Config()
@@ -122,6 +122,7 @@ struct Config {
         POST_CMD='\(Config.escape(postCmd))'
 
         """
+        try? FileManager.default.createDirectory(atPath: I18n.appSupportDir, withIntermediateDirectories: true)
         try? text.write(toFile: Config.path, atomically: true, encoding: .utf8)
     }
 
@@ -228,7 +229,24 @@ enum Sys {
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
-    static var logPath: String { NSHomeDirectory() + "/.lte-wake.log" }
+    static var logPath: String { I18n.appSupportDir + "/lte-guard.log" }
+
+    /// 一次性迁移：配置与日志的真身从家目录隐藏文件搬到标准
+    /// Application Support 目录（此前那里只放替身）。历史日志保留。
+    static func migrateLegacyFiles() {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: I18n.appSupportDir, withIntermediateDirectories: true)
+        for (old, new) in [(NSHomeDirectory() + "/.lte-guard.conf", Config.path),
+                           (NSHomeDirectory() + "/.lte-wake.log", logPath)] {
+            guard fm.fileExists(atPath: old) else { continue }
+            // 新位置若是此前放的替身，先删替身再搬真身
+            if let t = (try? fm.attributesOfItem(atPath: new))?[.type] as? FileAttributeType,
+               t == .typeSymbolicLink {
+                try? fm.removeItem(atPath: new)
+            }
+            if !fm.fileExists(atPath: new) { try? fm.moveItem(atPath: old, toPath: new) }
+        }
+    }
 
     /// usbreset 可执行文件：优先 App 内置资源，回退用户目录（兼容早期手工安装）
     static var usbresetPath: String {
@@ -245,6 +263,7 @@ enum Sys {
         if let h = FileHandle(forWritingAtPath: logPath) {
             h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); h.closeFile()
         } else {
+            try? FileManager.default.createDirectory(atPath: I18n.appSupportDir, withIntermediateDirectories: true)
             try? line.write(toFile: logPath, atomically: true, encoding: .utf8)
         }
     }
@@ -1054,6 +1073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ n: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        Sys.migrateLegacyFiles()    // 先迁移旧路径文件，再写第一条日志
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         Sys.log(T(117, ver))
         I18n.prepareUserLangDir()   // 启动即释放/刷新翻译模板（等效"安装时释放"，且升级后自动同步）
@@ -1583,23 +1603,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir))
     }
 
-    /// 一键打开配置文件夹：内含配置文件、日志与语言目录的入口
+    /// 一键打开配置文件夹：配置文件、日志与语言目录都真实存放于此
     @objc func openConfigFolder() {
         let fm = FileManager.default
-        let dir = I18n.appSupportDir
         I18n.prepareUserLangDir()   // 顺带建好 lang/ 与模板
-
-        // 配置文件与日志实际在家目录（保持兼容），这里放软链接方便访问
-        for (target, name) in [(Config.path, "lte-guard.conf"), (Sys.logPath, "lte-guard.log")] {
-            if !fm.fileExists(atPath: target) {
-                try? "".write(toFile: target, atomically: true, encoding: .utf8)
-            }
-            let link = dir + "/" + name
-            if !fm.fileExists(atPath: link) {
-                try? fm.createSymbolicLink(atPath: link, withDestinationPath: target)
-            }
+        for target in [Config.path, Sys.logPath] where !fm.fileExists(atPath: target) {
+            try? "".write(toFile: target, atomically: true, encoding: .utf8)
         }
-        NSWorkspace.shared.open(URL(fileURLWithPath: dir))
+        NSWorkspace.shared.open(URL(fileURLWithPath: I18n.appSupportDir))
     }
 
     @objc func openLog() {

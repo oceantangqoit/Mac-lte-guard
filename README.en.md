@@ -183,7 +183,7 @@ Other menu items:
 | Item | What it does |
 |---|---|
 | Check and repair now | Trigger a check manually |
-| Open log | Opens `~/.lte-wake.log` |
+| Open log | Opens `~/Library/Application Support/LTE Guard/lte-guard.log` |
 | Launch at login | Toggle any time (works for DMG installs too) |
 | Run diagnostics | Self-check with concrete fixes |
 | Command after recovery… | Two-phase hooks: "on disconnection" (e.g. open the Network pane to watch the repair) and "after recovery" (e.g. reconnect a proxy) — one command per line, run in order, plus common ones you can just tick |
@@ -224,7 +224,7 @@ name=English
 
 ## Configuration
 
-`~/.lte-guard.conf` (maintained by the app, editable by hand; old single-target configs upgrade automatically):
+`~/Library/Application Support/LTE Guard/lte-guard.conf` (maintained by the app, editable by hand; old single-target configs upgrade automatically):
 
 ```sh
 # one heal target per line, tab-separated: interface, service name, USB_VID, USB_PID
@@ -305,7 +305,7 @@ An early version shipped that toggle. It was removed after testing showed it sim
 | **iPhone USB tethering** | Apple's own NCM device; macOS usually recovers it by itself, but the same mechanism applies if it does not |
 | **Wi-Fi, Thunderbolt Ethernet and other non-USB interfaces** | Automatically falls back to restarting the network service — fixes software-level hangs, not driver-level ones |
 
-If your hardware is not in the table, **please open an issue with the result** (model, `USB VID:PID`, a snippet of `~/.lte-wake.log`) — success or failure. That is the most useful contribution right now.
+If your hardware is not in the table, **please open an issue with the result** (model, `USB VID:PID`, a snippet of `~/Library/Application Support/LTE Guard/lte-guard.log`) — success or failure. That is the most useful contribution right now.
 
 ## What this tool cannot fix
 
@@ -331,7 +331,7 @@ A simple rule of thumb: **if unplugging and replugging by hand brings it back, t
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
 rm -rf /Applications/LTEGuard.app
 ```
 

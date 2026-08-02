@@ -173,7 +173,7 @@ Les autres entrées du menu :
 | Entrée | Rôle |
 |---|---|
 | Vérifier et réparer maintenant | Déclenche une exécution manuelle |
-| Afficher le journal | Ouvre `~/.lte-wake.log` |
+| Afficher le journal | Ouvre `~/Library/Application Support/LTE Guard/lte-guard.log` |
 | Lancement au démarrage | Interrupteur modifiable à tout moment (disponible aussi après une installation par DMG) |
 | Lancer le diagnostic | Auto-vérification point par point avec les remèdes correspondants |
 | Commande après récupération… | Hooks en deux phases : « à la détection de la coupure » (par exemple ouvrir le panneau Réseau pour suivre la réparation) et « après la récupération » (par exemple reconnecter un proxy) — une commande par ligne, exécutées dans l'ordre, avec en plus des choix courants à cocher |
@@ -223,7 +223,7 @@ author=……
 
 ## Fichier de configuration
 
-`~/.lte-guard.conf` (maintenu automatiquement par l'app, modifiable à la main ; les anciennes configurations à cible unique sont mises à niveau automatiquement) :
+`~/Library/Application Support/LTE Guard/lte-guard.conf` (maintenu automatiquement par l'app, modifiable à la main ; les anciennes configurations à cible unique sont mises à niveau automatiquement) :
 
 ```sh
 # une cible à soigner par ligne, champs séparés par des tabulations : interface, nom du service, USB_VID, USB_PID
@@ -294,7 +294,7 @@ Les adaptateurs multiples sont réparés indépendamment, en parallèle. Un dél
 | **Partage de connexion USB d'un iPhone** | Il s'agit d'un périphérique NCM maison d'Apple, généralement rétabli par le système lui-même ; en cas de problème identique, cet outil s'applique tout aussi bien sur le principe |
 | **Interfaces non USB : Wi-Fi, port Thunderbolt, etc.** | Bascule automatique sur « redémarrer le service réseau ». Cela résout les blocages logiciels, mais pas un gel au niveau du pilote |
 
-Si votre appareil ne figure pas dans le tableau ci-dessus, **n'hésitez pas à ouvrir une Issue pour m'indiquer votre résultat** (modèle, `USB VID:PID`, extrait de `~/.lte-wake.log`), qu'il s'agisse d'un succès ou d'un échec — c'est le retour dont le projet a le plus besoin aujourd'hui.
+Si votre appareil ne figure pas dans le tableau ci-dessus, **n'hésitez pas à ouvrir une Issue pour m'indiquer votre résultat** (modèle, `USB VID:PID`, extrait de `~/Library/Application Support/LTE Guard/lte-guard.log`), qu'il s'agisse d'un succès ou d'un échec — c'est le retour dont le projet a le plus besoin aujourd'hui.
 
 ## Pourquoi il n'y a pas de « maintenir la connexion pendant la veille »
 
@@ -317,7 +317,7 @@ Les premières versions comportaient cet interrupteur ; il a été retiré aprè
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/.lte-guard.conf ~/.lte-wake.log
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
 rm -rf /Applications/LTEGuard.app
 ```
 
