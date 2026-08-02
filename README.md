@@ -52,7 +52,38 @@
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
 
-### 这个问题有多普遍
+### 十年了，还没修好——而且最新版更严重
+
+这不是一个"老早修掉了"的陈年问题。把公开求助按时间排开会看到一条从未断过的线：
+
+| 时期 | 状况 |
+|---|---|
+| Intel Mac 时代 | Apple 社区已有大量"USB 网卡睡眠后失效"的求助，编号最早可追溯到 7686532 一批帖子 |
+| Apple Silicon 迁移后 | 问题并未随架构更新消失，M1 机型上继续出现，同时扩展坞、外置硬盘也开始报同类症状 |
+| macOS 15 Sequoia | 持续出现；部分用户报告某些适配器"以前好好的，升级后就不行" |
+| **2025 年 10 月，macOS 26 Tahoe** | [外置 USB 设备睡眠后断开](https://discussions.apple.com/thread/256157526) —— **26 人附议**，楼主实测两款不同扩展坞、多种存储设备均复现，已向 Apple 提交 Feedback 工单，**至今无解**；原话是"必须完全拔下并重新连接才能被检测到" |
+| **2025 年 11 月，macOS 26** | [第三方以太网适配器不再工作](https://discussions.apple.com/thread/256192666) —— ASIX AX88179 芯片，在 Sequoia 上正常、升 Tahoe 后失效。楼主最终自己找到的办法是"删除网络服务后重新插入，让它重新初始化" |
+| **2026 年，macOS 26.5.1** | 仍有[设备在唤醒后冻结](https://discussions.apple.com/thread/256306656)的反馈。macpaw 等站点专门写了"Tahoe USB 设备断连怎么办"的教程——通常只有高频问题才值得写教程 |
+
+也就是说：**问题跨越了 Intel 到 Apple Silicon 的架构迁移、跨越了至少四五个 macOS 大版本，到 2026 年的最新小版本依然存在，并且在 macOS 26 上出现了新的、更严重的表现形式。**
+
+### 为什么这么简单的问题，Apple 十年没搞定
+
+不是不能修，是这类问题恰好落在几个最不利的交叉点上：
+
+1. **它不是一个 bug，是一类症状的集合。** 表面都是"睡醒后不工作"，底下的根因至少有七八种：第三方芯片固件在低功耗恢复时的时序偏差、驱动在唤醒时重新初始化失败、xHCI 控制器状态机的边界情况、Thunderbolt 隧道重建失败……修好一个，另一个还在。
+2. **责任落在模糊地带。** 出问题的几乎都是第三方芯片（AX88179、RTL8153 等），很多是"在 Windows 上能跑通"就发货，未必严格符合 USB 规范。Apple 认为是设备实现问题，厂商认为在别的系统上没事——中间地带没人负责。
+3. **复现不了就修不了。** 依赖具体组合：机型 + 芯片 + 是否经过 hub + 线缆 + 当时的睡眠深度 + 系统小版本，而且常常是概率性的。工程师拿手边设备试一天没复现，工单就关了。
+4. **睡眠唤醒本就是系统里最难的部分之一。** 要求固件（SMC/EFI）、内核、驱动、用户态、外设自身固件**五层在低功耗约束下协同**，任何一层超时或状态不同步就出问题。这不是 Apple 独有——Linux 的 USB autosuspend、Windows 的 selective suspend 有几乎一样的老 bug。
+5. **架构一直在变，旧疤好了新伤又来。** Intel → Apple Silicon 整个 USB 栈重写，kext → DriverKit 驱动模型迁移。每次大版本都可能引入回归，所以才会有"Sequoia 上好好的，升 Tahoe 就坏了"。
+6. **有 workaround 反而降低了修复压力。** 拔插一下就好的问题，在 bug 排期里通常是低优先级，永远排在影响收入的问题后面。
+7. **封闭生态在这类问题上是劣势。** 没有公开的 bug tracker，用户提了 Feedback 石沉大海；社区无法协作调试，也不能像 Linux 那样自己打补丁提交上去。
+
+有意思的是：**本工具能修好，恰恰说明了问题的性质**——设备硬件没坏、系统 USB 栈也没崩，重新枚举一次就活了，说明只是**会话状态机卡在了中间态**。这类"状态不同步"的问题在大型系统里最难根治，因为它不是某行代码写错了，而是状态机在特定时序下的边界情况；修它要重新审视整条链路，收益却只对少数用户可见。
+
+所以更准确的说法也许是：不是 Apple "搞不定"，而是**在成本收益排序里这个问题永远轮不到**。这恰好留下了第三方工具的空间——不需要根治它，只需要在它发生后 8 秒内把状态机踢回正轨。
+
+### 更多同类求助
 
 Apple 官方社区、MacRumors、Plugable 知识库里同类求助跨越多年、横跨 Intel 与 Apple Silicon：
 
@@ -134,7 +165,7 @@ cd Mac-lte-guard && ./build.sh
 | 查看日志 | 打开 `~/.lte-wake.log` |
 | 开机启动 | 开关，随时可改（DMG 安装的用户也能用） |
 | 运行诊断 | 逐项自检并给出对策 |
-| 恢复后执行命令… | 可选钩子：网卡恢复后自动跑一条 Shell 命令（留空则什么都不做） |
+| 恢复后执行命令… | 可选钩子：网卡恢复后按顺序执行多条 Shell 命令，每行一条；另有常用命令可勾选 |
 | 重置 USB 设备 | 列出所有 USB 设备，一键软件拔插——音频接口、摄像头、硬盘、扩展坞同样适用 |
 | 菜单栏图标 | 始终显示 / 仅异常时显示 / 隐藏（**隐藏后，从「应用程序」再打开一次 App 即可找回**） |
 | 打开配置文件夹 | 一键在访达中打开配置、日志与语言目录 |
@@ -191,11 +222,19 @@ USB_PID="0125"         # USB 产品 ID
 POST_CMD=''            # 恢复后执行的命令，例如重启代理进程
 ```
 
-`POST_CMD` 示例——恢复后重启一个绑定该网卡的 gost 代理：
+**`POST_CMD` 支持多条命令**，在对话框里每行写一条，按顺序执行。对话框下方还有三个常用项可以直接勾选：
+
+- 打开「系统设置 → 网络」，方便亲眼看着断掉的连接被接回来
+- 恢复后弹出系统通知
+- 播放提示音
+
+例如同时重启代理、打开网络设置、发通知：
 
 ```sh
-POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte'
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nopen -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane\nosascript -e \'display notification "网卡已恢复" with title "LTE Guard"\''
 ```
+
+配置文件里换行写作 `\n`、单引号写作 `\'`（由 App 自动转义，手改时照此格式即可）。
 
 ## 工作原理
 

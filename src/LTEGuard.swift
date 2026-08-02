@@ -31,7 +31,7 @@ struct Config {
             case "SERVICE": c.service = val
             case "USB_VID": c.usbVID = val
             case "USB_PID": c.usbPID = val
-            case "POST_CMD": c.postCmd = val
+            case "POST_CMD": c.postCmd = Config.unescape(val)
             default: break
             }
         }
@@ -45,10 +45,43 @@ struct Config {
         SERVICE="\(service)"
         USB_VID="\(usbVID)"
         USB_PID="\(usbPID)"
-        POST_CMD='\(postCmd.replacingOccurrences(of: "'", with: "'\\\\''"))'
+        POST_CMD='\(Config.escape(postCmd))'
 
         """
         try? text.write(toFile: Config.path, atomically: true, encoding: .utf8)
+    }
+
+    /// 写入配置时转义：反斜杠 → \\，换行 → \n，单引号 → \'
+    /// （配置文件由本程序自行解析，不交给 shell，因此用统一的自定义转义，
+    ///   避免 shell 风格转义在多次读写中累积）
+    static func escape(_ s: String) -> String {
+        var out = ""
+        for ch in s {
+            switch ch {
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "'":  out += "\\'"
+            default:   out.append(ch)
+            }
+        }
+        return out
+    }
+
+    /// 读取配置时反转义（与 escape 严格成对）
+    static func unescape(_ s: String) -> String {
+        var out = ""
+        var it = s.makeIterator()
+        while let ch = it.next() {
+            guard ch == "\\" else { out.append(ch); continue }
+            switch it.next() {
+            case "n":  out += "\n"
+            case "'":  out += "'"
+            case "\\": out += "\\"
+            case let other?: out.append("\\"); out.append(other)
+            case nil:  out += "\\"
+            }
+        }
+        return out
     }
 
     var methodText: String {
@@ -809,23 +842,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 恢复后执行命令：GUI 编辑（默认空，未配置不会执行任何东西）
+    /// 恢复后执行的命令：多行文本，每行一条，按顺序执行。
+    /// 下方提供常用命令的勾选项，勾中即追加到文本框。
     @objc func editPostCmd() {
         var cfg = Config.load()
         let a = NSAlert()
         a.messageText = T(53)
         a.informativeText = I18n.shared.paragraph(T(54))
-        let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
-        tf.stringValue = cfg.postCmd
-        // 命令本身始终是拉丁文，强制左对齐更易读
-        tf.alignment = .left
-        tf.baseWritingDirection = .leftToRight
-        tf.placeholderString = "launchctl kickstart -k gui/$(id -u)/com.example.myproxy"
-        a.accessoryView = tf
+
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 210))
+
+        // 多行命令输入
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 86, width: 440, height: 120))
+        let tv = NSTextView(frame: scroll.bounds)
+        tv.string = cfg.postCmd
+        tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
+        tv.isAutomaticTextReplacementEnabled = false
+        tv.isRichText = false
+        tv.alignment = .left
+        tv.baseWritingDirection = .leftToRight
+        scroll.documentView = tv
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        box.addSubview(scroll)
+
+        // 常用命令：勾选即追加
+        let presets: [(String, String)] = [
+            (T(80), "open -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane"),
+            (T(81), "osascript -e 'display notification \"\(T(82))\" with title \"LTE Guard\"'"),
+            (T(83), "afplay /System/Library/Sounds/Glass.aiff"),
+        ]
+        var y = 58
+        for (title, cmd) in presets {
+            let cb = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+            cb.frame = NSRect(x: 2, y: y, width: 436, height: 20)
+            cb.state = tv.string.contains(cmd) ? .on : .off
+            cb.identifier = NSUserInterfaceItemIdentifier(cmd)
+            box.addSubview(cb)
+            y -= 22
+        }
+
+        a.accessoryView = box
         a.addButton(withTitle: T(17))
         a.addButton(withTitle: T(18))
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertFirstButtonReturn else { return }
-        cfg.postCmd = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 合并：手写内容 + 勾选项（去重、保序）
+        var lines = tv.string.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        for v in box.subviews {
+            guard let cb = v as? NSButton, let cmd = cb.identifier?.rawValue else { continue }
+            if cb.state == .on {
+                if !lines.contains(cmd) { lines.append(cmd) }
+            } else {
+                lines.removeAll { $0 == cmd }
+            }
+        }
+        cfg.postCmd = lines.joined(separator: "\n")
         cfg.save()
         notify(T(55))
     }

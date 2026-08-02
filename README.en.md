@@ -48,7 +48,38 @@ These all describe the same thing, and this tool exists for it:
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos` · `usb network adapter dead after wake macos` · `thunderbolt dock ethernet not working after sleep`
 
-### How common is it
+### Ten years on, still unfixed — and worse in the latest release
+
+This is not an old bug that was quietly resolved years ago. Laid out chronologically, the public reports form an unbroken line:
+
+| Period | State of play |
+|---|---|
+| Intel Mac era | Apple's forums already carried plenty of "USB ethernet adapter dead after sleep" threads; the earliest ones sit in the 7686532 range |
+| After the Apple Silicon transition | The problem did not go away with the new architecture — it kept appearing on M1 machines, and docks and external drives started showing the same symptoms |
+| macOS 15 Sequoia | Still present; some users reported adapters that "used to work fine and stopped after the upgrade" |
+| **October 2025, macOS 26 Tahoe** | [External USB devices disconnect after sleep](https://discussions.apple.com/thread/256157526) — **26 "me too" votes**. The reporter reproduced it with two different Thunderbolt docks and several storage devices, filed a Feedback ticket, and **still has no fix**. Their words: "I have to fully unplug and reconnect the dock before the drives are detected" |
+| **November 2025, macOS 26** | [Third-party ethernet adapters no longer work](https://discussions.apple.com/thread/256192666) — ASIX AX88179 chipset, fine on Sequoia, broken after upgrading to Tahoe. The workaround the reporter eventually found: delete the network service and re-insert the adapter so it re-initialises |
+| **2026, macOS 26.5.1** | Devices [still freezing after wake](https://discussions.apple.com/thread/256306656). Sites like MacPaw have published dedicated "USB devices disconnecting on macOS Tahoe" guides — people generally only write guides for high-frequency problems |
+
+In other words: **the problem survived the Intel → Apple Silicon transition, survived at least four or five major macOS releases, is still present in the latest 2026 point release, and has taken on new and more severe forms on macOS 26.**
+
+### Why hasn't Apple fixed something this simple in ten years?
+
+Not because it can't be fixed, but because this class of bug lands at the intersection of several unfavourable factors:
+
+1. **It isn't one bug, it's a family of symptoms.** They all look like "dead after wake", but the root causes number at least seven or eight: timing deviations in third-party chipset firmware coming out of low power, drivers failing to re-initialise on wake, edge cases in the xHCI controller state machine, Thunderbolt tunnels failing to rebuild… fix one and the others remain.
+2. **Responsibility falls in a grey zone.** Almost every affected device uses a third-party chipset (AX88179, RTL8153 and friends), plenty of which shipped once they "worked on Windows" without strictly conforming to the USB spec. Apple sees a device implementation problem; the vendor sees a system that behaves fine elsewhere. Nobody owns the middle.
+3. **What can't be reproduced can't be fixed.** It depends on the exact combination: Mac model + chipset + whether a hub is involved + the cable + how deeply the machine slept + the OS point release — and it is often probabilistic. An engineer who tries the hardware on hand for a day without reproducing it closes the ticket.
+4. **Sleep/wake is one of the hardest areas in any OS.** It requires firmware (SMC/EFI), kernel, drivers, userspace and the peripheral's own firmware to **cooperate under power constraints across five layers**; any timeout or state mismatch anywhere breaks it. This is not Apple-specific — Linux USB autosuspend and Windows selective suspend carry nearly identical long-standing bugs.
+5. **The architecture keeps moving, so old scars reopen as new wounds.** Intel → Apple Silicon rewrote the whole USB stack; kext → DriverKit migrated the driver model. Every major release can introduce regressions — hence "worked on Sequoia, broke on Tahoe".
+6. **Having a workaround lowers the pressure to fix it.** A problem you can clear by unplugging and replugging tends to sit low in triage, permanently behind anything that affects revenue.
+7. **A closed ecosystem is a disadvantage here.** There is no public bug tracker, Feedback submissions vanish into silence, and the community can neither collaborate on debugging nor ship its own patch the way it can on Linux.
+
+Here's the interesting part: **the fact that this tool works tells you what kind of problem it is.** The hardware is fine and the system's USB stack has not crashed — one re-enumeration brings it back, which means the **session state machine is simply stuck in an intermediate state**. That class of "state desynchronisation" bug is the hardest to eradicate in a large system, because it isn't a line of wrong code but an edge case in a state machine under particular timing; fixing it means re-auditing the whole chain for a payoff only a minority of users would notice.
+
+So a more accurate framing might be: it isn't that Apple *can't* fix it — it's that **the problem never reaches the top of a cost/benefit queue**. Which is exactly the gap a third-party tool can fill: not by curing it, but by kicking the state machine back on track within eight seconds of it happening.
+
+### More reports of the same kind
 
 Reports span years, both Intel and Apple Silicon, across Apple's own forums, MacRumors and vendor knowledge bases:
 
@@ -130,7 +161,7 @@ Other menu items:
 | Open log | Opens `~/.lte-wake.log` |
 | Launch at login | Toggle any time (works for DMG installs too) |
 | Run diagnostics | Self-check with concrete fixes |
-| Command after recovery… | Optional hook: run a shell command once the adapter is back (empty = do nothing) |
+| Command after recovery… | Optional hook: run several shell commands in order once the adapter is back — one per line, plus a few common ones you can just tick |
 | Reset a USB device | Lists all USB devices and software-replugs the one you choose — works for audio interfaces, webcams, drives and docks too |
 | Menu bar icon | Always show / only when there is a problem / hidden (**to bring it back, just open the app again from Applications**) |
 | Open config folder | Reveals the config file, log and language folder in Finder |
@@ -180,9 +211,19 @@ POST_CMD=''            # command to run after recovery, e.g. restart a proxy
 
 `POST_CMD` example — restart a gost proxy bound to that interface:
 
+**`POST_CMD` takes multiple commands** — write one per line in the dialog and they run in order. The dialog also offers three common ones as checkboxes:
+
+- Open System Settings → Network, so you can watch the dropped connection come back with your own eyes
+- Show a system notification when done
+- Play a sound
+
+For example, restarting a proxy, opening Network settings and posting a notification all at once:
+
 ```sh
-POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte'
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nopen -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane\nosascript -e \'display notification "Adapter is back online" with title "LTE Guard"\''
 ```
+
+In the config file, newlines are written as `\n` and single quotes as `\'` (the app escapes them automatically; follow the same form if editing by hand).
 
 ## How it works
 
