@@ -13,16 +13,18 @@ LTE Guard 是免费开源的（MIT），做它的初衷只是解决自己每天�
 
 ## 请作者喝杯咖啡 ☕
 
-<!-- 把收款码图片放进 docs/ 目录后，取消下面这段的注释即可显示
 <table>
   <tr>
-    <td align="center"><img src="docs/sponsor-wechat.jpg" width="220"><br><sub>微信</sub></td>
-    <td align="center"><img src="docs/sponsor-alipay.jpg" width="220"><br><sub>支付宝</sub></td>
+    <td align="center" width="50%">
+      <img src="docs/sponsor-wechat.jpg" width="240" alt="微信支付"><br>
+      <sub><b>微信支付</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/sponsor-alipay.jpg" width="240" alt="支付宝"><br>
+      <sub><b>支付宝</b></sub>
+    </td>
   </tr>
 </table>
--->
-
-*（收款码整理中）*
 
 完全自愿，不打赏一样可以随便用、随便改、随便分发。
 
@@ -34,4 +36,4 @@ LTE Guard is free and open source under the MIT license.
 
 The most useful things you can do cost nothing: star the repo, report your adapter model so more hardware gets covered, or contribute a translation — it's just one INI file.
 
-If you'd like to buy me a coffee, the QR codes above work with WeChat Pay and Alipay. Entirely optional; the app stays free either way.
+If you'd like to buy me a coffee, the QR codes above work with WeChat Pay and Alipay (both widely used in China). Entirely optional — the app stays free either way.

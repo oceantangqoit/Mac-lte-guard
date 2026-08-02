@@ -1,4 +1,4 @@
-build/
-dist/
 *.dSYM
 .DS_Store
+build/
+dist/
