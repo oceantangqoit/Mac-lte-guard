@@ -264,7 +264,7 @@ If this saved you from replugging USB over and over:
 - **Practice areas**: commercial litigation and arbitration, criminal defence and victim representation, employment disputes, corporate counsel work, due diligence
 - **Track record**: 500+ contentious and non-contentious matters; standing counsel to a number of companies
 
-**Why a lawyer writes apps**: CCNA in 2002, CIW Security Analyst in 2003, law degree from Wuhan University of Technology in 2005 — and years of writing VBA + Excel case-management tooling for his own practice (matter tracking, document generation, OCR extraction, automated mail). This app has an equally concrete origin: he converted a first-gen DJI video link to LTE backhaul for fun, plugged a 4G stick into his Mac, and got tired of unplugging it after every single lid close.
+**Why a lawyer writes apps**: CCNA in 2002, CIW Security Analyst in 2003, law degree from Wuhan University of Technology in 2005 — and years of writing VBA + Excel case-management tooling for his own practice (matter tracking, document generation, OCR extraction, automated mail). This app has an equally concrete origin: he converted a first-gen DJI video link into LTE backhaul and used it as a 4G modem — then had to unplug and replug it after every single lid close before the network would come back. Annoyed enough, he built this app together with Claude.
 
 Happy to talk law or code — [Discussions](../../discussions) or an issue both work.
 
