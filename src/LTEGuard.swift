@@ -460,6 +460,170 @@ final class Healer {
     }
 }
 
+
+// MARK: - 环境探测（用于「恢复后执行命令」的动态勾选项）
+
+/// 一条可勾选的命令。程序添加的行会带 #lteguard 标记，
+/// 以便与用户手写的内容严格区分——用户手写的行程序永不删除。
+struct PresetCmd {
+    let title: String       // 勾选框显示文字
+    let command: String     // 实际命令（不含标记）
+    let hint: String        // 宽松匹配用的关键字；为空则只做精确匹配
+    var tooltip: String = ""
+}
+
+enum Detect {
+    static let mark = "#lteguard"
+
+    /// 扫描用户 LaunchAgent，找出参数中提到指定网络接口的服务。
+    /// 这样不论用户用的是 gost、v2ray、clash 还是自写脚本，只要绑定了
+    /// 这块网卡就能被发现，无需在代码里硬编码任何工具名。
+    static func agentsBound(to dev: String) -> [(label: String, reason: String)] {
+        guard !dev.isEmpty else { return [] }
+        let dir = NSHomeDirectory() + "/Library/LaunchAgents"
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return [] }
+        var out: [(String, String)] = []
+        for f in files where f.hasSuffix(".plist") {
+            guard let text = try? String(contentsOfFile: dir + "/" + f, encoding: .utf8) else { continue }
+            // 跳过本程序自己
+            guard !text.contains("com.oceantang.lteguard") else { continue }
+            // 参数里出现 interface=en2 / %en2 / 独立的 en2 才算绑定
+            let patterns = ["interface=\(dev)", "%\(dev)", "bind=\(dev)", "dev=\(dev)", "-i \(dev)"]
+            guard patterns.contains(where: { text.contains($0) }) else { continue }
+            let label = (f as NSString).deletingPathExtension
+            out.append((label, dev))
+        }
+        return out
+    }
+
+    /// 已挂载的网络卷（SMB / NFS / AFP / WebDAV）
+    static func networkVolumes() -> [String] {
+        let out = Sys.run("mount | awk '/smbfs|nfs|afpfs|webdav/ {for(i=1;i<=NF;i++) if($i==\"on\"){print $(i+1); break}}'")
+        return out.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    }
+
+    /// 正在运行的 VPN 类进程
+    static func vpnProcesses() -> [String] {
+        var found: [String] = []
+        for (proc, name) in [("tailscaled", "Tailscale"), ("wireguard-go", "WireGuard"),
+                             ("openvpn", "OpenVPN"), ("com.wireguard", "WireGuard")] {
+            if Sys.run("pgrep -x \(proc) >/dev/null 2>&1 && echo y") == "y", !found.contains(name) {
+                found.append(name)
+            }
+        }
+        return found
+    }
+
+    /// 正在运行的、依赖网络的同步/下载类 App
+    static func networkApps() -> [(name: String, bundleID: String)] {
+        let known: [String: String] = [
+            "com.synology.SynologyDrive": "Synology Drive",
+            "com.synology.CloudStation": "Synology Drive",
+            "com.getdropbox.dropbox": "Dropbox",
+            "com.microsoft.OneDrive": "OneDrive",
+            "com.jianguoyun.nutstore": "Nutstore",
+            "org.m0k.transmission": "Transmission",
+            "org.qbittorrent.qBittorrent": "qBittorrent",
+            "com.baidu.BaiduNetdisk": "Baidu Netdisk",
+        ]
+        var out: [(String, String)] = []
+        for app in NSWorkspace.shared.runningApplications {
+            guard let bid = app.bundleIdentifier, let name = known[bid] else { continue }
+            if !out.contains(where: { $0.1 == bid }) { out.append((name, bid)) }
+        }
+        return out
+    }
+}
+
+
+// MARK: - 「恢复后执行命令」对话框
+
+/// 勾选项与命令文本的双向实时同步控制器。
+///
+/// 所有权规则（重要）：程序添加的行末尾带 `#lteguard` 标记，取消勾选时只删
+/// 带标记的行；**用户手写的行程序永不触碰**，只能由用户自己删除。因此勾选框
+/// 有三种状态：
+///   - on     该命令存在且由程序添加（可通过取消勾选移除）
+///   - mixed  该命令存在但是用户手写的（勾选框置灰，仅提示不可自动移除）
+///   - off    不存在
+final class PostCmdEditor: NSObject, NSTextViewDelegate {
+    private let textView: NSTextView
+    private var boxes: [(NSButton, PresetCmd)] = []
+    private var syncing = false
+
+    init(textView: NSTextView) {
+        self.textView = textView
+        super.init()
+        textView.delegate = self
+    }
+
+    func register(_ button: NSButton, _ preset: PresetCmd) {
+        button.target = self
+        button.action = #selector(toggled(_:))
+        button.allowsMixedState = true
+        boxes.append((button, preset))
+    }
+
+    var currentText: String { textView.string }
+
+    /// 依据文本内容刷新所有勾选框状态
+    func refreshBoxes() {
+        guard !syncing else { return }
+        syncing = true
+        defer { syncing = false }
+        let lines = textView.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        for (btn, p) in boxes {
+            var state: NSControl.StateValue = .off
+            for raw in lines {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                guard !line.isEmpty else { continue }
+                let tagged = line.hasSuffix(Detect.mark)
+                let body = tagged
+                    ? String(line.dropLast(Detect.mark.count)).trimmingCharacters(in: .whitespaces)
+                    : line
+                let hit = (body == p.command) || (!p.hint.isEmpty && line.contains(p.hint))
+                guard hit else { continue }
+                // 带标记 = 程序所加，可取消；无标记 = 用户手写，仅提示
+                state = tagged ? .on : .mixed
+                if state == .mixed { break }   // 手写优先，不再被后续行覆盖
+            }
+            btn.state = state
+            btn.isEnabled = (state != .mixed)   // 手写的置灰，避免误以为能点掉
+            if state == .mixed && btn.toolTip == nil { btn.toolTip = p.tooltip }
+        }
+    }
+
+    /// 勾选/取消 → 立即改写文本（所勾即所得）
+    @objc private func toggled(_ sender: NSButton) {
+        guard let idx = boxes.firstIndex(where: { $0.0 === sender }) else { return }
+        let p = boxes[idx].1
+        syncing = true
+        var lines = textView.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        if sender.state == .on {
+            let entry = "\(p.command)   \(Detect.mark)"
+            if !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) {
+                while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+                lines.append(entry)
+            }
+        } else {
+            // 只删带标记的行——用户手写的同名行原样保留
+            lines.removeAll { raw in
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                guard line.hasSuffix(Detect.mark) else { return false }
+                let body = String(line.dropLast(Detect.mark.count)).trimmingCharacters(in: .whitespaces)
+                return body == p.command
+            }
+        }
+        textView.string = lines.joined(separator: "\n")
+        syncing = false
+        refreshBoxes()
+    }
+
+    /// 用户手动编辑文本 → 勾选框状态跟着变
+    func textDidChange(_ notification: Notification) { refreshBoxes() }
+}
+
 // MARK: - 开机自启
 
 /// 菜单栏图标显示模式
@@ -842,18 +1006,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 恢复后执行命令：GUI 编辑（默认空，未配置不会执行任何东西）
-    /// 恢复后执行的命令：多行文本，每行一条，按顺序执行。
-    /// 下方提供常用命令的勾选项，勾中即追加到文本框。
+    /// 恢复后执行的命令。多行，每行一条，按顺序执行。
+    /// 勾选项分「常用」与「检测到的」两组，后者依据当前环境动态生成。
     @objc func editPostCmd() {
         var cfg = Config.load()
         let a = NSAlert()
         a.messageText = T(53)
         a.informativeText = I18n.shared.paragraph(T(54))
 
-        let box = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 210))
+        let W = 480
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 330))
 
-        // 多行命令输入
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 86, width: 440, height: 120))
+        // 命令文本框
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 190, width: W, height: 140))
         let tv = NSTextView(frame: scroll.bounds)
         tv.string = cfg.postCmd
         tv.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -866,43 +1031,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scroll.documentView = tv
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
-        box.addSubview(scroll)
+        container.addSubview(scroll)
 
-        // 常用命令：勾选即追加
-        let presets: [(String, String)] = [
-            (T(80), "open -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane"),
-            (T(81), "osascript -e 'display notification \"\(T(82))\" with title \"LTE Guard\"'"),
-            (T(83), "afplay /System/Library/Sounds/Glass.aiff"),
+        let editor = PostCmdEditor(textView: tv)
+
+        // ── 勾选区（可滚动）──
+        let listScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 180))
+        listScroll.hasVerticalScroller = true
+        listScroll.borderType = .noBorder
+        listScroll.drawsBackground = false
+
+        var presets: [(String?, [PresetCmd])] = []
+
+        // 常用（固定）
+        let common: [PresetCmd] = [
+            PresetCmd(title: T(80),
+                      command: "open -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane",
+                      hint: "Network.prefPane"),
+            PresetCmd(title: T(86),
+                      command: "curl -s -m 5 -o /dev/null http://captive.apple.com && echo online",
+                      hint: "captive.apple.com"),
+            PresetCmd(title: T(81),
+                      command: "osascript -e 'display notification \"\(T(82))\" with title \"LTE Guard\"'",
+                      hint: "display notification"),
+            PresetCmd(title: T(83), command: "afplay /System/Library/Sounds/Glass.aiff",
+                      hint: "afplay"),
+            PresetCmd(title: T(92),
+                      command: "curl -s -X POST -H 'Content-Type: application/json' -d '{\"text\":\"LTE Guard: \(T(82))\"}' 'PASTE_YOUR_WEBHOOK_URL'",
+                      hint: "PASTE_YOUR_WEBHOOK_URL"),
         ]
-        var y = 58
-        for (title, cmd) in presets {
-            let cb = NSButton(checkboxWithTitle: title, target: nil, action: nil)
-            cb.frame = NSRect(x: 2, y: y, width: 436, height: 20)
-            cb.state = tv.string.contains(cmd) ? .on : .off
-            cb.identifier = NSUserInterfaceItemIdentifier(cmd)
-            box.addSubview(cb)
-            y -= 22
-        }
+        presets.append((T(84), common))
 
-        a.accessoryView = box
+        // 检测到的（动态）
+        var found: [PresetCmd] = []
+        for (label, dev) in Detect.agentsBound(to: cfg.dev) {
+            found.append(PresetCmd(
+                title: T(87, label, dev),
+                command: "launchctl kickstart -k gui/$(id -u)/\(label)",
+                hint: label,
+                tooltip: T(91)))
+        }
+        for vol in Detect.networkVolumes() {
+            let name = (vol as NSString).lastPathComponent
+            found.append(PresetCmd(title: T(88, name),
+                                   command: "open '\(vol)'", hint: vol, tooltip: T(91)))
+        }
+        for vpn in Detect.vpnProcesses() {
+            if vpn == "Tailscale" {
+                found.append(PresetCmd(title: T(89, vpn),
+                    command: "/Applications/Tailscale.app/Contents/MacOS/Tailscale up 2>/dev/null || true",
+                    hint: "Tailscale", tooltip: T(91)))
+            }
+        }
+        for (name, bid) in Detect.networkApps() {
+            found.append(PresetCmd(title: T(90, name),
+                command: "osascript -e 'quit app id \"\(bid)\"' ; sleep 2 ; open -b \(bid)",
+                hint: bid, tooltip: T(91)))
+        }
+        if !found.isEmpty { presets.append((T(85), found)) }
+
+        // 布局
+        var rows: [NSView] = []
+        for (header, items) in presets {
+            if let h = header {
+                let lbl = NSTextField(labelWithString: h)
+                lbl.font = NSFont.boldSystemFont(ofSize: 11)
+                lbl.textColor = .secondaryLabelColor
+                rows.append(lbl)
+            }
+            for p in items {
+                let cb = NSButton(checkboxWithTitle: p.title, target: nil, action: nil)
+                cb.toolTip = p.command
+                editor.register(cb, p)
+                rows.append(cb)
+            }
+        }
+        let rowH = 22
+        let contentH = max(180, rows.count * rowH + 8)
+        let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16, height: contentH))
+        var y = contentH - rowH
+        for v in rows {
+            v.frame = NSRect(x: 4, y: y, width: W - 24, height: 18)
+            doc.addSubview(v)
+            y -= rowH
+        }
+        listScroll.documentView = doc
+        container.addSubview(listScroll)
+
+        editor.refreshBoxes()
+
+        a.accessoryView = container
         a.addButton(withTitle: T(17))
         a.addButton(withTitle: T(18))
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertFirstButtonReturn else { return }
 
-        // 合并：手写内容 + 勾选项（去重、保序）
-        var lines = tv.string.split(separator: "\n", omittingEmptySubsequences: false)
+        // 文本即最终结果——勾选已实时写入，无需再合并
+        cfg.postCmd = editor.currentText
+            .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        for v in box.subviews {
-            guard let cb = v as? NSButton, let cmd = cb.identifier?.rawValue else { continue }
-            if cb.state == .on {
-                if !lines.contains(cmd) { lines.append(cmd) }
-            } else {
-                lines.removeAll { $0 == cmd }
-            }
-        }
-        cfg.postCmd = lines.joined(separator: "\n")
+            .joined(separator: "\n")
         cfg.save()
         notify(T(55))
     }
