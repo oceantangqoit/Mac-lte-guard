@@ -44,13 +44,36 @@
 
 ## 如果你是搜索着找过来的
 
-这些说法描述的多半是同一件事，本工具就是为它写的：
+下面这些是各个论坛里真实出现过的提问措辞。如果你正因为其中任何一句而搜索，那本工具就是为你写的。
 
-> Mac 睡眠唤醒后网线没反应 · 合盖后 USB 网卡断网 · 外接网卡要拔了重插才恢复 · USB-C 转以太网适配器休眠后失效 · 扩展坞网口睡醒不通 · LTE 上网卡合盖后掉线 · 4G 网卡唤醒后无法上网 · 指示灯亮但没网 · 接口还在但 ping 不通
+### 中文社区里大家是怎么问的
 
-英文常见搜索词（本工具同样适用）：
+> 外置有线网卡唤醒时失效 · 睡眠唤醒后扩展坞需要重新插拔才能用 · Mac 休眠后再唤醒就不认外接的移动硬盘了 · 休眠重启后键盘失灵要重新插拔 USB 线才恢复 · MacBook 使用绿联 TypeC 网卡锁屏睡眠后断网 · 螃蟹 8153 网卡休眠唤醒后大概率失效 · 网卡在设置里显示"未连接" · 合盖再打开就没网了 · 指示灯还亮着但上不了网 · 接口还在但 ping 不通 · 拔了重插才能恢复 · Mac 睡眠唤醒后网线没反应 · USB-C 转以太网适配器休眠后失效 · 扩展坞网口睡醒不通 · LTE 上网卡合盖后掉线 · 4G 随身 WiFi 唤醒后无法上网 · 外接声卡休眠后不识别 · 摄像头睡眠唤醒后消失 · 读卡器唤醒后读不到 · Mac mini 睡眠后 USB 口全部失灵
 
-> `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
+### 英文社区里的原始标题
+
+以下均为 Apple 官方社区、MacRumors 等处的真实帖子标题，一字未改：
+
+> `Ethernet USB-C adapter doesn't wake up after sleep` · `Ethernet adapter doesn't want to wake up after sleep` · `Usb ethernet adapter is not working after sleep` · `Ethernet not waking after sleep` · `Ethernet reset/disconnect on wake-up` · `Ethernet disconnected after sleep` · `MacBook Air 2020 USB LAN issue after sleep` · `USB devices aren't working after waking from sleep` · `USB A ports no power after wake up` · `Mac Mini M1 — USB Ports not working after wake from sleep` · `USB device does not wake up after sleep` · `Hardwired internet via a USB hub is not working after the MBP sleeps` · `Devices are not detected after waking from sleep or after rebooting on macOS` · `Ethernet connection downgraded while asleep` · `Loosing Ethernet connection nearly every day` · `After updating to macOS Tahoe external USB devices disconnect after sleep` · `USB ports NOT working after macOS Tahoe` · `AX 88179a Ethernet Adapter not recognized` · `macOS 26 Third Party Ethernet Support` · `Mouse freezes after macOS Tahoe 26.5`
+
+常见搜索词组合：
+
+> `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos` · `usb device dead after wake macos` · `thunderbolt dock ethernet not working after sleep` · `external drive not mounting after sleep mac` · `usb hub stops working after sleep macbook` · `macos re-enumerate usb device without unplugging` · `software unplug usb mac` · `reset usb port macos command line`
+
+### 按设备分类
+
+| 你的设备 | 常见描述 |
+|---|---|
+| USB 网卡 / 有线网卡 | 灯亮但没网、显示"未连接"、`en5` 还在但 ping 不通、要拔了重插 |
+| LTE / 4G / 5G 上网卡、随身 WiFi | 合盖后掉线、唤醒后无法上网、需要重新插拔才能拨号 |
+| 扩展坞 / Dock（Belkin、Plugable、Anker、绿联、CalDigit、OWC） | 睡醒后坞上设备全都不认、要拔掉整个坞再插 |
+| 外置硬盘 / SSD | 休眠后不挂载、提示"磁盘未正确推出"、要重插才出现 |
+| 摄像头 / 采集卡 / 声卡音频接口 | 唤醒后设备列表里消失、软件里选不到 |
+| 读卡器 / 加密狗 / 键鼠 | 唤醒后无响应、要拔插一次才恢复 |
+
+### 常见芯片型号（论坛里被点名最多的）
+
+> ASIX `AX88179` / `AX88179A` · Realtek `RTL8153`（中文社区常称"螃蟹 8153"）· `RTL8156` 2.5G · Quectel `EC25` · 各类 `CM3xx` 系列 · Intel `I225-V`（经雷雳扩展坞）
 
 ### 十年了，还没修好——而且最新版更严重
 

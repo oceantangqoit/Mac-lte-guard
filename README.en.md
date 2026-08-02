@@ -44,9 +44,32 @@ Since the underlying mechanism is identical, the menu includes **Reset a USB dev
 
 ## Found this by searching?
 
-These all describe the same thing, and this tool exists for it:
+Below are phrasings that actually appear in forum posts. If any of them is why you're here, this tool was written for you.
 
-> `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos` · `usb network adapter dead after wake macos` · `thunderbolt dock ethernet not working after sleep`
+### Real thread titles, quoted verbatim
+
+From Apple Support Communities, MacRumors and vendor knowledge bases — not paraphrased:
+
+> `Ethernet USB-C adapter doesn't wake up after sleep` · `Ethernet adapter doesn't want to wake up after sleep` · `Usb ethernet adapter is not working after sleep` · `Ethernet not waking after sleep` · `Ethernet reset/disconnect on wake-up` · `Ethernet disconnected after sleep` · `MacBook Air 2020 USB LAN issue after sleep` · `USB devices aren't working after waking from sleep` · `USB A ports no power after wake up` · `Mac Mini M1 — USB Ports not working after wake from sleep` · `USB device does not wake up after sleep` · `Hardwired internet via a USB hub is not working after the MBP sleeps` · `Devices are not detected after waking from sleep or after rebooting on macOS` · `Ethernet connection downgraded while asleep` · `Loosing Ethernet connection nearly every day` · `After updating to macOS Tahoe external USB devices disconnect after sleep` · `USB ports NOT working after macOS Tahoe` · `AX 88179a Ethernet Adapter not recognized` · `macOS 26 Third Party Ethernet Support` · `Mouse freezes after macOS Tahoe 26.5`
+
+### Search phrases people type
+
+> `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos` · `usb device dead after wake macos` · `thunderbolt dock ethernet not working after sleep` · `external drive not mounting after sleep mac` · `usb hub stops working after sleep macbook` · `macos re-enumerate usb device without unplugging` · `software unplug usb mac` · `reset usb port macos command line` · `macos usb reset without physically unplugging` · `automatically replug usb adapter after wake`
+
+### By device type
+
+| Your device | How people describe it |
+|---|---|
+| USB / wired network adapter | LED on but no traffic, shows "Not Connected", `en5` still listed but ping fails, only a replug fixes it |
+| LTE / 4G / 5G modem, mobile hotspot | Drops after closing the lid, no internet after wake, needs a replug before it will dial again |
+| Dock (Belkin, Plugable, Anker, CalDigit, OWC, UGREEN) | Nothing on the dock is recognised after wake, have to unplug the whole dock |
+| External drive / SSD | Won't mount after sleep, "Disk Not Ejected Properly", only reappears after replugging |
+| Webcam / capture card / audio interface | Gone from the device list after wake, can't be selected in the app |
+| Card reader / dongle / keyboard & mouse | Unresponsive after wake, one replug brings it back |
+
+### Chipsets named most often in those threads
+
+> ASIX `AX88179` / `AX88179A` · Realtek `RTL8153` · `RTL8156` 2.5G · Quectel `EC25` · various `CM3xx` series · Intel `I225-V` (behind Thunderbolt docks)
 
 ### Ten years on, still unfixed — and worse in the latest release
 
