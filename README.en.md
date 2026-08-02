@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <b>English</b> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a>
+  <a href="README.md">简体中文</a> · <b>English</b> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a> · <a href="README.ru.md">Русский</a> · <a href="README.rw.md">Ikinyarwanda</a>
 </p>
 
 ---
@@ -67,7 +67,7 @@ LTE Guard is a watchdog that sits in your menu bar and listens for system wake e
 - 🎯 **Vendor-agnostic** — VID/PID are detected when you pick the adapter; there is no built-in device list
 - 🔌 **Works with non-USB adapters too** — falls back to restarting the network service
 - 🛠 **Post-recovery hook** — run your own command after recovery (reconnect a proxy, redial, …)
-- 🌍 **28 languages** — follows your system language, switchable from the menu
+- 🌍 **53 languages** — follows your system language, switchable from the menu
 - 🪶 **Zero dependencies** — a single app; no daemons to install, no Homebrew required
 
 ## Install
@@ -124,15 +124,14 @@ Other menu items:
 | Run diagnostics | Self-check with concrete fixes |
 | Command after recovery… | Optional hook: run a shell command once the adapter is back (empty = do nothing) |
 | Menu bar icon | Always show / only when there is a problem / hidden (**to bring it back, just open the app again from Applications**) |
-| Language | Switch among 28 languages |
+| Open config folder | Reveals the config file, log and language folder in Finder |
+| Language | Switch among 53 languages; the submenu can open the language folder directly |
 
 ## Localization
 
 **28 languages** ship with the app, covering the markets with the highest Mac share as well as regions that rely heavily on mobile broadband:
 
 Simplified/Traditional Chinese · Japanese · Korean · Swedish · Norwegian Bokmål · Danish · Finnish · English · German · French · Dutch · Italian · Polish · Czech · Russian · Ukrainian · Spanish (incl. Mexico/Argentina) · Portuguese (incl. Brazil) · Arabic · Hebrew · Turkish · Vietnamese · Indonesian · Thai
-
-> On Switzerland: there is no "Swiss" language — the official languages are German (~62%), French (23%) and Italian (8%), all three of which are already included.
 
 The app follows your system language at startup; you can also switch it from the **Language** menu (the choice is remembered).
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <b>简体中文</b> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a>
+  <b>简体中文</b> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a> · <a href="README.ru.md">Русский</a> · <a href="README.rw.md">Ikinyarwanda</a>
 </p>
 
 ---
@@ -71,7 +71,7 @@ LTE Guard 是一个常驻在菜单栏里的守护工具，监听系统唤醒事�
 - 🎯 **不挑品牌** — 选中网卡后自动探测 VID/PID，没有内置设备清单
 - 🔌 **非 USB 网卡也能用** — 自动降级为重启网络服务
 - 🛠 **可挂后续命令** — 恢复后自动执行自定义命令（重连代理、重新拨号等）
-- 🌍 **28 种语言** — 跟随系统自动切换，菜单里也能手动选
+- 🌍 **53 种语言** — 跟随系统自动切换，菜单里也能手动选
 - 🪶 **零依赖** — 单个 App，不装守护进程、不要 Homebrew
 
 ## 安装
@@ -128,24 +128,28 @@ cd Mac-lte-guard && ./build.sh
 | 运行诊断 | 逐项自检并给出对策 |
 | 恢复后执行命令… | 可选钩子：网卡恢复后自动跑一条 Shell 命令（留空则什么都不做） |
 | 菜单栏图标 | 始终显示 / 仅异常时显示 / 隐藏（**隐藏后，从「应用程序」再打开一次 App 即可找回**） |
-| 语言 | 28 种语言切换 |
+| 打开配置文件夹 | 一键在访达中打开配置、日志与语言目录 |
+| 语言 | 53 种语言切换；子菜单内可直接打开语言文件夹 |
 
 ## 多语言
 
-内置 **28 种语言**，覆盖 Mac 占有率最高的市场与移动网络依赖度高的地区：
+内置 **53 种语言**，覆盖 Mac 占有率最高的市场、人口最多的语言，以及移动网络依赖度高的地区：
 
 | 区域 | 语言 |
 |---|---|
-| 中文圈 | 简体中文、繁體中文 |
-| 东亚 | 日本語、한국어 |
+| 中文圈与东亚 | 简体中文、繁體中文、日本語、한국어、Монгол |
+| 南亚 | हिन्दी、বাংলা、اردو、தமிழ்、తెలుగు、मराठी |
+| 东南亚 | Tiếng Việt、Bahasa Indonesia、Bahasa Melayu、Filipino、ไทย、မြန်မာ、ភាសាខ្មែរ |
+| 中东与中亚 | العربية、עברית、فارسی、Türkçe、Қазақша、Oʻzbekcha、Azərbaycanca |
+| 非洲 | Kiswahili、Ikinyarwanda、አማርኛ、Hausa、Afrikaans、isiZulu |
 | 北欧 | Svenska、Norsk bokmål、Dansk、Suomi |
 | 西欧 | English、Deutsch、Français、Nederlands、Italiano |
-| 中东欧 | Polski、Čeština、Русский、Українська |
-| 南欧/拉美 | Español（含 🇲🇽 🇦🇷 变体）、Português（含 🇧🇷 变体） |
-| 中东 | العربية、עברית、Türkçe |
-| 东南亚 | Tiếng Việt、Bahasa Indonesia、ไทย |
+| 中东欧与巴尔干 | Polski、Čeština、Русский、Українська、Српски、Magyar、Română、Български、Ελληνικά |
+| 南欧与拉美 | Español（含 🇲🇽 🇦🇷 变体）、Português（含 🇧🇷 变体） |
 
-> 关于瑞士：瑞士没有"瑞士语"，官方语言是德语（约 62%）、法语（23%）、意大利语（8%）——三种均已内置，瑞士用户已被覆盖。
+后加入的语言由 AI 辅助翻译、尚未经母语者校对，文件头部已注明。**发现表述不地道，欢迎直接改一行提 PR** —— 这是最容易上手的贡献方式。
+
+**自定义或新增语言**：菜单「语言 → 打开语言文件夹…」会直接在访达中打开目录（并自动放一份英文模板），把 `en.template.ini` 复制成目标语言代码（如 `nl.ini`）翻译等号右侧即可，重启后出现在语言菜单里。同名文件优先于内置版本。
 
 启动时按系统语言自动选择，也可在菜单「语言」中手动切换（记住选择）。
 

@@ -171,10 +171,45 @@ final class I18n {
         return found.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 
+    /// 应用配置根目录（菜单中一键打开）
+    static var appSupportDir: String {
+        NSHomeDirectory() + "/Library/Application Support/LTE Guard"
+    }
+
+    /// 用户自定义语言目录
+    static var userLangDir: String { appSupportDir + "/lang" }
+
     static var searchDirs: [String] {
-        var d = [NSHomeDirectory() + "/.lte-guard-lang"]
+        // 新标准位置 → 旧隐藏路径（向后兼容） → App 内置
+        var d = [userLangDir, NSHomeDirectory() + "/.lte-guard-lang"]
         if let r = Bundle.main.resourcePath { d.append(r + "/lang") }
         return d
+    }
+
+    /// 确保目录存在，并放一份 en.ini 作为翻译模板
+    static func prepareUserLangDir() {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: userLangDir, withIntermediateDirectories: true)
+        let sample = userLangDir + "/README.txt"
+        if !fm.fileExists(atPath: sample) {
+            let text = """
+            Put your own <language>.ini files here (e.g. nl.ini, sr.ini).
+
+            The easiest way: copy the bundled English file below into this folder,
+            rename it to your language code, and translate the right-hand side of
+            each numbered line. Restart LTE Guard and it appears in the Language menu.
+
+            A file here overrides a bundled one with the same name.
+            Pull requests with translations are very welcome:
+            https://github.com/oceantangqoit/Mac-lte-guard
+            """
+            try? text.write(toFile: sample, atomically: true, encoding: .utf8)
+        }
+        // 附带一份英文模板，省去用户去 App 包里翻
+        if let r = Bundle.main.resourcePath {
+            let src = r + "/lang/en.ini", dst = userLangDir + "/en.template.ini"
+            if !fm.fileExists(atPath: dst) { try? fm.copyItem(atPath: src, toPath: dst) }
+        }
     }
 
     private static func metaName(_ path: String) -> String? {
@@ -582,6 +617,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
         m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
         m.addItem(item(T(12), #selector(openLog), symbol: "doc.text"))
+        m.addItem(item(T(68), #selector(openConfigFolder), symbol: "folder"))
         m.addItem(item(T(30), #selector(toggleLaunch),
                        state: LaunchAtLogin.isEnabled ? .on : .off, symbol: "power.circle"))
         m.addItem(item(T(29), #selector(showDiagnosis), symbol: "stethoscope"))
@@ -611,6 +647,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             li.state = (code == I18n.shared.code) ? .on : .off
             langMenu.addItem(li)
         }
+        langMenu.addItem(.separator())
+        let openDir = NSMenuItem(title: T(67), action: #selector(openLangFolder), keyEquivalent: "")
+        openDir.target = self
+        langMenu.addItem(openDir)
         langItem.submenu = langMenu
         langItem.isEnabled = true
         m.addItem(langItem)
@@ -737,6 +777,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Healer.shared.checkAndHeal(reason: "manual")
     }
 
+    /// 在访达中打开自定义语言目录（自动创建并放入模板）
+    @objc func openLangFolder() {
+        I18n.prepareUserLangDir()
+        NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir))
+    }
+
+    /// 一键打开配置文件夹：内含配置文件、日志与语言目录的入口
+    @objc func openConfigFolder() {
+        let fm = FileManager.default
+        let dir = I18n.appSupportDir
+        I18n.prepareUserLangDir()   // 顺带建好 lang/ 与模板
+
+        // 配置文件与日志实际在家目录（保持兼容），这里放软链接方便访问
+        for (target, name) in [(Config.path, "lte-guard.conf"), (Sys.logPath, "lte-guard.log")] {
+            if !fm.fileExists(atPath: target) {
+                try? "".write(toFile: target, atomically: true, encoding: .utf8)
+            }
+            let link = dir + "/" + name
+            if !fm.fileExists(atPath: link) {
+                try? fm.createSymbolicLink(atPath: link, withDestinationPath: target)
+            }
+        }
+        NSWorkspace.shared.open(URL(fileURLWithPath: dir))
+    }
+
     @objc func openLog() {
         if !FileManager.default.fileExists(atPath: Sys.logPath) {
             try? "".write(toFile: Sys.logPath, atomically: true, encoding: .utf8)
@@ -748,7 +813,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let a = NSAlert()
         a.messageText = "LTE Guard \(ver)"
-        a.informativeText = "\(T(57))\n\n\(T(59))"
+        a.informativeText = "\(T(57))\n\n\(T(64))\n\(T(66))\n\(T(65))\n\n\(T(59))"
         a.alertStyle = .informational
         a.addButton(withTitle: T(58))       // 项目主页
         a.addButton(withTitle: T(17))       // 确定
