@@ -764,6 +764,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
     private var statusItem: NSStatusItem!
     private let watcher = WakeWatcher()
+    /// 在「恢复后执行命令」对话框存活期间持有，防止其 target/delegate（弱引用）被提前释放
+    private var postCmdEditor: PostCmdEditor?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -1028,12 +1030,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tv.isRichText = false
         tv.alignment = .left
         tv.baseWritingDirection = .leftToRight
+        tv.isEditable = true
+        tv.isSelectable = true
+        tv.allowsUndo = true
+        tv.autoresizingMask = [.width]
+        tv.isVerticallyResizable = true
+        tv.textContainer?.widthTracksTextView = true
         scroll.documentView = tv
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         container.addSubview(scroll)
 
         let editor = PostCmdEditor(textView: tv)
+        self.postCmdEditor = editor   // 持有，否则 target/delegate（弱引用）会被立即释放，勾选与文本回调全部失效
 
         // ── 勾选区（可滚动）──
         let listScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 180))
