@@ -46,11 +46,59 @@ Weil der zugrunde liegende Mechanismus derselbe ist, bietet das Menü dieses Wer
 
 Die folgenden Formulierungen beschreiben höchstwahrscheinlich ein und dasselbe Problem – und genau dafür wurde dieses Werkzeug geschrieben:
 
-> Mac Netzwerk geht nach Ruhezustand nicht mehr · USB-Netzwerkadapter nach Zuklappen ohne Verbindung · externer Adapter muss aus- und wieder eingesteckt werden · USB-C-Ethernet-Adapter funktioniert nach Standby nicht mehr · Dock-Netzwerkanschluss nach dem Aufwachen tot · LTE-Stick verliert nach dem Zuklappen die Verbindung · 4G-Stick nach dem Aufwachen ohne Internet · LED leuchtet, aber kein Internet · Schnittstelle vorhanden, aber ping schlägt fehl
+### So wird es in deutschsprachigen Foren gefragt
+
+> Kein LAN nach Ruhezustand · MacBook verliert Internet-Verbindung nach dem Sleep-Modus · der Adapter muss rausgezogen und wieder eingesteckt werden · USB-Probleme nach Ruhezustand · USB-Gerät nach dem Aufwachen nicht erkannt · Dock nach Standby nicht erkannt · Festplatte nicht korrekt ausgeworfen · externe Platte fliegt beim Ruhezustand raus · Kein Internet nach Aufwachen aus dem Ruhezustand · USB-Maus wird nach Ruhezustand nicht gefunden · Kartenlesegerät wird beim Starten aus Standby nicht erkannt · LED leuchtet, aber kein Internet · Schnittstelle vorhanden, aber ping schlägt fehl
+
+Ein Nutzer in der MacUser.de-Community beschreibt das Problem wörtlich so:
+
+> „sobald ich das MacBook in den Standby Modus schalte und dann wieder einschalte verliert er die Verbindung zum Internet nun muss ich den Adapter wieder hinaus ziehen und wieder einstecken.“
+> — [MacBook verliert Internet Verbindung nach dem Sleep Modus (USB Lan Adapter)](https://www.macuser.de/threads/macbook-verliert-internet-verbindung-nach-dem-sleep-modus-usb-lan-adapter.905945/)
+
+**Genau dieses „hinaus ziehen und wieder einstecken“ erledigt dieses Werkzeug automatisch per Software.**
+
+### Echte Thread-Titel (unverändert zitiert)
+
+Alles reale, öffentlich einsehbare Beiträge aus dem deutschsprachigen Raum – Wortlaut unverändert.
+
+**MacUser.de Community**
+
+> „[Kein LAN nach Ruhezustand](https://www.macuser.de/threads/kein-lan-nach-ruhezustand.821097/)“ · „[MacBook verliert Internet Verbindung nach dem Sleep Modus (USB Lan Adapter)](https://www.macuser.de/threads/macbook-verliert-internet-verbindung-nach-dem-sleep-modus-usb-lan-adapter.905945/)“ · „[Mac erkennt Netzwerk nicht mehr (über USB/Ethernet) – macOS Sierra](https://www.macuser.de/threads/mac-erkennt-netzwerk-nicht-mehr-uber-usb-ethernet-macos-sierra.757335/)“ · „[Kein Internet nach Aufwachen aus dem Ruhezustand](https://www.macuser.de/threads/kein-internet-nach-aufwachen-aus-dem-ruhezustand.9298/)“ · „[OS X trennt USB Platte im Ruhezustand](https://www.macuser.de/threads/os-x-trennt-usb-platte-im-ruhezustand.772053/)“ · „[iMac trennt externen Platten im Ruhezustand](https://www.macuser.de/threads/imac-trennt-externen-platten-im-ruhezustand.744455/)“ · „[Seit Tahoe ständig Probleme beim Remounten von ext. Laufwerken nach Ruhezustand](https://www.macuser.de/threads/seit-tahoe-standig-probleme-beim-remounten-von-ext-laufwerken-nach-ruhezustand.963435/)“ · „[USB-Geräte werden nicht erkannt, Apple Support weiß nicht weiter](https://www.macuser.de/threads/usb-gerate-werden-nicht-erkannt-apple-support-weiss-nicht-weiter.878601/)“ · „[USB-Zubehör wird nicht erkannt](https://www.macuser.de/threads/usb-zubehor-wird-nicht-erkannt.932611/)“ · „[Logitech C920 USB Webcam nicht mehr erkannt](https://www.macuser.de/threads/logitech-c920-usb-webcam-nicht-mehr-erkannt.931747/)“
+
+**Apfeltalk**
+
+> „[USB-Probleme nach Ruhezustand](https://www.apfeltalk.de/community/threads/13-mbpr-usb-probleme-nach-ruhezustand.502884/)“ (13" MBPr) · „[USB Probleme im Standby](https://www.apfeltalk.de/community/threads/usb-probleme-im-standby.489003/)“ (10.11 El Capitan) · „[USB C Adapter - Ethernet funktioniert nicht](https://www.apfeltalk.de/community/threads/usb-c-adapter-ethernet-funktioniert-nicht.508901/)“ · „[USB Ethernet Adaptor läuft nicht](https://www.apfeltalk.de/community/threads/usb-ethernet-adaptor-laeuft-nicht.382085/)“ · „[Verbindung eines Lan-Kabels über 8-in-1 USB-C Hub an MacBook nicht möglich](https://www.apfeltalk.de/community/threads/verbindung-eines-lan-kabels-ueber-8-in-1-usb-c-hub-an-macbook-nicht-moeglich.559243/)“ · „[Belkin USB-Hub Probleme](https://www.apfeltalk.de/community/threads/belkin-usb-hub-probleme.77953/)“
+
+**Apple Community (deutsch) und weitere**
+
+> „[USB-Maus wird nach Ruhezustand nicht gefunden](https://communities.apple.com/de/thread/252509070)“ · „[USB-Maus funktioniert nach Standby nicht](https://communities.apple.com/de/thread/255462034)“ · „[Externe Festplatte nach Ruhezustand ‚nicht korrekt ausgeworfen‘](https://communities.apple.com/de/thread/253685545)“ · „[Probleme mit USB-Hub: Nach Ruhezustand kommt die Meldung, dass angeschlossene Festplatten unsachgemäß ausgeworfen wurden.](https://www.macfix.de/entries/mix/669010)“ (MacFix) · „[Kartenlesegerät wird beim Starten aus Standby nicht erkannt](https://homebanking-hilfe.de/forum/topic.php?t=14475)“ (homebanking-hilfe.de)
+
+Zu macOS 26 Tahoe schreibt ein Betroffener auf MacUser.de: „Seit dem Update zu Tahoe werden meine externen Festplatten beim Beenden des Ruhezustands nur in etwa 50% der Fälle wieder korrekt gemountet.“ Die deutsche Fachpresse titelte dazu: „Externe Festplatten und Docks werden zu Geistern“.
+
+### Gängige Suchbegriff-Kombinationen
+
+> `mac usb netzwerkadapter nach ruhezustand ohne verbindung` · `kein lan nach ruhezustand mac` · `macbook verliert internet nach standby usb lan adapter` · `usb gerät nach dem aufwachen nicht erkannt mac` · `mac usb adapter abziehen und wieder einstecken` · `externe festplatte nach ruhezustand nicht korrekt ausgeworfen` · `dock nach standby nicht erkannt macbook` · `usb-c hub ethernet funktioniert nicht mac` · `usb maus nach ruhezustand nicht gefunden` · `macos tahoe usb geräte getrennt` · `rtl8153 mac treiber problem` · `ax88179 mac nicht erkannt`
 
 Gängige englische Suchbegriffe (dieses Werkzeug passt genauso):
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
+
+### Nach Gerätetyp
+
+| Ihr Gerät | Wie deutschsprachige Nutzer es beschreiben |
+|---|---|
+| USB-Ethernet-Adapter | „Kein LAN nach Ruhezustand“ · „verliert das MBP die LAN-Verbindung und stellt sie auch nicht mehr her“ · „der Adapter muss rausgezogen und wieder eingesteckt werden“ · in den Netzwerkeinstellungen bleibt es bei „Nicht verbunden“ |
+| LTE-/4G-Surfstick, Mobilfunk-Modem | „Kein Internet nach Aufwachen aus dem Ruhezustand“ · in Foren empfohlen: „den USB-Stick abziehen und nach 10–15 Sekunden wieder einstecken“ |
+| Dock / USB-C-Hub (Belkin, LMP, Plugable, Anker, CalDigit) | „USB-Probleme nach Ruhezustand“ · „Verbindung eines Lan-Kabels über 8-in-1 USB-C Hub an MacBook nicht möglich“ · direkt am Mac läuft alles, über den Hub nicht |
+| Externe Festplatte / SSD | „Festplatte nicht korrekt ausgeworfen“ · „OS X trennt USB Platte im Ruhezustand“ · „nur in etwa 50 % der Fälle wieder korrekt gemountet“ |
+| Webcam / Audio-Interface | „Logitech C920 USB Webcam nicht mehr erkannt“ – im USB-Manager noch sichtbar, in der Geräteauswahl der App aber nicht mehr auswählbar |
+| Kartenleser / Tastatur / Maus | „Kartenlesegerät wird beim Starten aus Standby nicht erkannt“ · „USB-Maus wird nach Ruhezustand nicht gefunden“ · erst ein Neustart oder das Umstecken hilft |
+
+### Häufig genannte Chipsätze
+
+In deutschsprachigen Foren werden als Ursache regelmäßig diese Chips benannt:
+
+> ASIX `AX88179` / `AX88179A` (in Apfeltalk-Threads heißt es, man brauche dafür den ASIX-Treiber) · Realtek `RTL8153` · Realtek `RTL8156` (2,5 GbE) · Quectel `EC25` · Intel `I225-V` (über Thunderbolt-Dock)
 
 ### Wie verbreitet ist das Problem?
 

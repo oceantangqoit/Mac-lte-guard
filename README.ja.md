@@ -46,11 +46,59 @@ Mac が **USB 外付けネットワークアダプタ**でインターネット�
 
 以下はいずれも同じ問題を指しています。本ツールはまさにそのために書かれました。
 
-> Mac スリープ後 有線LAN 使えない · 合蓋後 USB LAN 切断 · 外付けアダプタ 抜き差ししないと復帰しない · USB-C イーサネットアダプタ スリープ後 動かない · ドック LANポート 復帰後 認識しない · LTE モデム スリープ後 切断 · ランプは点いているのにネットに繋がらない · インターフェースはあるのに ping が通らない
+### 日本のコミュニティでは、こう聞かれています
+
+> スリープ復帰で LAN が切断する · スリープ解除後、有線LAN にすぐに繋がらない · USB-LAN を認識しないので毎回 USB を切り離して接続し直している · 蓋を閉じて開くとネットに繋がらない · ドッキングステーションに接続した USB 機器が認識されなくなる · スリープ解除すると外付けハードディスクがランダムに切断される · 「ディスクの不正な取り出し」の通知が毎回出る · 外付け SSD を認識しない · USB で接続してもマウントされない（認識はされている）· スリープ復帰後に USB キーボードを認識しない · 抜き差ししないと復帰しない · ランプは点いているのにネットに繋がらない · インターフェースはあるのに ping が通らない
+
+Apple 公式コミュニティ（日本）に投稿された、症状そのままの一文：
+
+> 「ネット接続は問題ありませんが、スリープからの復帰後は、USB-LAN を認識しないために、USB 切り離しー接続を、毎回行っています。」
+> — [スリープ復帰でLANが切断する件](https://discussionsjapan.apple.com/thread/10091439)
+
+**この「USB 切り離しー接続を、毎回」を、本ツールがソフトウェアで自動的に行います。**
+
+### 実際のスレッドタイトル（原文のまま）
+
+日本語圏で公開されている実在の投稿・記事タイトルです。一字も変えていません。
+
+**Apple 公式コミュニティ（日本）**
+
+> [スリープ復帰でLANが切断する件](https://discussionsjapan.apple.com/thread/10091439) · [スリープ解除後、有線LANにすぐに繋がらない](https://discussionsjapan.apple.com/thread/253794607) · [Mac Studio スリープ解除後直ぐに有線LANが繋がらない](https://discussionsjapan.apple.com/thread/253878938) · [USBキーボードでスリープから復帰しない](https://discussionsjapan.apple.com/thread/10173386) · [BigSurにアップグレードしたら、イーサネットに繋がらなくなった](https://discussionsjapan.apple.com/thread/252037806) · [macOS 26.1 - 外付けSSDを認識しない](https://discussionsjapan.apple.com/thread/256179974) · [USBで接続してもマウントされない（認識はされている）](https://discussionsjapan.apple.com/thread/256195608)
+
+**Plugable 日本語ナレッジベース**（周辺機器メーカー自身が症状を記事化しています）
+
+> [\[macOS\] macOS のスリープ後や再起動後に、ドッキングステーションに接続した USB 機器やモニターが認識されなくなる](https://kb.plugable.com/ja_JP/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos) · [\[macOS\] Mac システムがスリープ後に、有線 LAN ネットワーク（全体）が使えなくなる](https://kb.plugable.com/ja_JP/when-i-put-my-mac-to-sleep-it-causes-my-entire-network-to-stop-functioning) · [\[macOS\] Mac システムをスリープ解除すると、外付けハードディスクがランダムに切断され、「ディスクの不正な取り出し」という通知が表示される](https://kb.plugable.com/ja_JP/external-hard-drives-disconnect-randomly-or-at-sleepwake-mac-causing-an-improper-drive-eject-error-message)
+
+**メーカーサポート・個人ブログ**
+
+> [MAC OSがシステムスリープから復帰すると、外部USBドライブにアクセスできなくなります](https://support-jp.wd.com/app/answers/detailweb/a_id/28690)（Western Digital 日本語サポート）· [Mac がスリープ復帰後に USB 接続のキーボードを認識しない問題を回避できた](https://note.com/otanikohei/n/n355e0d1794bd) · [Macがスリープ復帰後におかしくなる問題──外部モニター、USB機器、Bluetoothを疑うべき理由](https://note.com/akausa28/n/ne43adc6cd78e) · [mac接続のUSB-HDDが自動スリープ「ディスクの不正な取り出し」で困った時の対処法](https://fanblogs.jp/macyarounanoka/archive/434/0) · [Anker PowerExpand 8-in-1 の有線LANがmacでつながらなかった話](https://note.com/johnnytherock/n/nb8432a29cdac)
+
+### よく使われる検索語の組み合わせ
+
+> `Mac スリープ 復帰 USB LANアダプタ 認識しない` · `Mac スリープ解除後 有線LAN 繋がらない` · `MacBook 蓋を閉じる ネット 切れる` · `Mac ドッキングステーション USB機器 認識しない スリープ` · `Mac 外付けHDD スリープ復帰 マウントされない` · `ディスクの不正な取り出し Mac スリープ 対処` · `Mac USB 抜き差ししないと認識しない` · `macOS Tahoe USB 機器 切断` · `Mac USB-C ハブ 有線LAN 繋がらない` · `RTL8153 Mac スリープ 不具合` · `AX88179 Mac 認識しない ドライバ`
 
 英語での一般的な検索語（本ツールは同じ問題に対応します）:
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
+
+### デバイス別
+
+| お使いの機器 | 日本のユーザーが実際に書く症状 |
+|---|---|
+| USB 有線LANアダプタ | 「スリープ解除後、有線LAN にすぐに繋がらない」「USB-LAN を認識しない」「ランプは点いているのに繋がらない」「システム設定のネットワークで『未接続』のまま」 |
+| LTE / 4G モデム・モバイルルーター | 「蓋を閉じたら切断」「スリープ後にテザリングが再接続できない」「復帰後にネットに出られない」 |
+| ドッキングステーション / USB-C ハブ | 「スリープ後や再起動後に、ドックに接続した USB 機器やモニターが認識されなくなる」「ハブを外して直結すると直る」「有線LAN ポートだけ死ぬ」 |
+| 外付け HDD / SSD | 「スリープ解除するとランダムに切断される」「『ディスクの不正な取り出し』の通知が出る」「認識はされているのにマウントされない」 |
+| ウェブカメラ / オーディオインターフェース | 「突然認識しなくなってしまいました」「オーディオインターフェイスがうまく動作しない」「復帰後にアプリのデバイス選択に出てこない」 |
+| SD カードリーダー / キーボード・マウス | 「SD カードリーダーが認識されない」「USB キーボードでスリープから復帰しない」「一度抜き差しすれば直る」 |
+
+### よく名前が挙がるチップ型番
+
+日本語の解説記事やコミュニティ回答で、原因として名指しされることが多いものです。
+
+> ASIX `AX88179` / `AX88179A`（macOS 標準では認識されず専用ドライバが必要、という解説が多い）· Realtek `RTL8153`（「macOS 内蔵ドライバ側のバグ」として日本語記事で頻出）· Realtek `RTL8156`（2.5GbE）· Quectel `EC25` · Intel `I225-V`（Thunderbolt ドック経由）
+
+製品名としては Anker PowerExpand、Belkin、Plugable、エレコム、バッファロー、サンワサプライ、CalDigit などのドック・アダプタが同じ文脈でよく挙がります。
 
 ### どれくらい一般的な問題か
 
