@@ -12,7 +12,7 @@ import UserNotifications
 enum Notifier {
     static func requestAuth() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, err in
-            Sys.log("notify auth: granted=\(granted)\(err.map { " error=\($0.localizedDescription)" } ?? "")")
+            Sys.log(granted ? T(114) : T(115, err?.localizedDescription ?? ""))
         }
     }
 
@@ -26,7 +26,7 @@ enum Notifier {
                 let req = UNNotificationRequest(identifier: UUID().uuidString,
                                                 content: content, trigger: nil)
                 center.add(req) { err in
-                    if let err = err { Sys.log("notify add error: \(err.localizedDescription)") }
+                    if let err = err { Sys.log(T(115, err.localizedDescription)) }
                 }
             } else {
                 // 未授权 / ad-hoc 签名被拒 → 老 API 兜底（已废弃但仍可投递）
@@ -611,16 +611,18 @@ final class Healer {
         healingDelta(+1)
         defer { healingDelta(-1) }
         let t0 = Date()
+        let rTxt = reason == "wake" ? T(110) : T(111)   // 日志里的触发原因也本地化
 
         if !t.vid.isEmpty {
-            Sys.log(T(93, reason, t.dev, "\(t.vid):\(t.pid)"))
+            Sys.log(T(93, rTxt, t.dev, "\(t.vid):\(t.pid)"))
             let out = Sys.run("'\(Sys.usbresetPath)' \(t.vid) \(t.pid) 2>&1")
-            Sys.log(out)
+            // usbreset 是英文输出的 C 工具：成功时记本地化文案，失败才保留原始输出便于排查
+            Sys.log(out.contains("OK") ? T(112, "\(t.vid):\(t.pid)") : T(113, out))
         } else if !t.service.isEmpty {
-            Sys.log(T(94, reason, t.dev, t.service))
+            Sys.log(T(94, rTxt, t.dev, t.service))
             Sys.run("networksetup -setnetworkserviceenabled '\(t.service)' off; sleep 3; networksetup -setnetworkserviceenabled '\(t.service)' on")
         } else {
-            Sys.log(T(95, reason, t.dev))
+            Sys.log(T(95, rTxt, t.dev))
             AppDelegate.shared?.flashResult("✕")
             return false
         }
@@ -954,6 +956,7 @@ final class WakeWatcher {
             let me = Unmanaged<WakeWatcher>.fromOpaque(refcon).takeUnretainedValue()
             switch msgType {
             case kMsgCanSleep, kMsgWillSleep:
+                if msgType == kMsgWillSleep { Sys.log(T(118)) }   // 真正入睡才记，询问阶段不记
                 IOAllowPowerChange(me.rootPort, Int(bitPattern: msgArg))
             case kMsgPoweredOn:
                 // 唤醒即修，不做预检（详见 Healer 注释）。
@@ -1048,6 +1051,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ n: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        Sys.log(T(117, ver))
         UNUserNotificationCenter.current().delegate = self
         Notifier.requestAuth()
         refreshIcon()
@@ -1271,7 +1276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func switchLang(_ sender: NSMenuItem) {
         guard let code = sender.representedObject as? String else { return }
         I18n.shared.load(preferred: code)
-        Sys.log("lang=\(code)")
+        Sys.log(T(116, code))
         notify(T(24))
         refreshIcon()
     }
@@ -1460,7 +1465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.global(qos: .userInitiated).async {
             Sys.log(T(99, name, "\(vid):\(pid)"))
             let out = Sys.run("'\(Sys.usbresetPath)' \(vid) \(pid) 2>&1")
-            Sys.log(out)
+            Sys.log(out.contains("OK") ? T(112, "\(vid):\(pid)") : T(113, out))
             DispatchQueue.main.async { self.notify(T(79, name)) }
         }
     }
