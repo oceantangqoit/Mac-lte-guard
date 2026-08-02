@@ -388,7 +388,8 @@ func T(_ id: Int, _ args: CVarArg...) -> String {
     switch args.count {
     case 0: return I18n.shared.t(id)
     case 1: return I18n.shared.t(id, args[0])
-    default: return I18n.shared.t(id, args[0], args[1])
+    case 2: return I18n.shared.t(id, args[0], args[1])
+    default: return I18n.shared.t(id, args[0], args[1], args[2])
     }
 }
 
@@ -433,15 +434,15 @@ final class Healer {
             self.lastHeal = Date()
 
             if !cfg.usbVID.isEmpty {
-                Sys.log("[\(reason)] \(cfg.dev) unhealthy, usb re-enumerate (\(cfg.usbVID):\(cfg.usbPID))...")
+                Sys.log(T(93, reason, cfg.dev, "\(cfg.usbVID):\(cfg.usbPID)"))
                 let tool = Sys.usbresetPath
                 let out = Sys.run("'\(tool)' \(cfg.usbVID) \(cfg.usbPID) 2>&1")
                 Sys.log(out)
             } else if !cfg.service.isEmpty {
-                Sys.log("[\(reason)] \(cfg.dev) unhealthy, bounce service [\(cfg.service)]...")
+                Sys.log(T(94, reason, cfg.dev, cfg.service))
                 Sys.run("networksetup -setnetworkserviceenabled '\(cfg.service)' off; sleep 3; networksetup -setnetworkserviceenabled '\(cfg.service)' on")
             } else {
-                Sys.log("[\(reason)] \(cfg.dev) unhealthy but no target configured")
+                Sys.log(T(95, reason, cfg.dev))
                 return
             }
 
@@ -450,12 +451,12 @@ final class Healer {
                 if Sys.run("ifconfig \(cfg.dev) 2>/dev/null | grep -q 'inet ' && echo y") == "y" {
                     Thread.sleep(forTimeInterval: 2)
                     if !cfg.postCmd.isEmpty { Sys.run(cfg.postCmd) }
-                    Sys.log("\(cfg.dev) recovered in ~\(i*5)s")
+                    Sys.log(T(96, cfg.dev, i*5))
                     DispatchQueue.main.async { AppDelegate.shared?.refreshIcon() }
                     return
                 }
             }
-            Sys.log("\(cfg.dev) NOT recovered")
+            Sys.log(T(97, cfg.dev))
         }
     }
 }
@@ -594,13 +595,25 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
     }
 
     /// 勾选/取消 → 立即改写文本（所勾即所得）
+    ///
+    /// 注意：不能依据 sender.state 判断意图——allowsMixedState 会让点击循环变成
+    /// off→mixed→on，第一跳落在 .mixed 上，永远走不到 .on。因此这里改为从
+    /// 文本内容推导：已有带标记的行→本次点击=取消；没有→本次点击=勾选。
+    /// 最终显示状态交给 refreshBoxes() 统一校正。
     @objc private func toggled(_ sender: NSButton) {
         guard let idx = boxes.firstIndex(where: { $0.0 === sender }) else { return }
         let p = boxes[idx].1
         syncing = true
         var lines = textView.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
-        if sender.state == .on {
+        let hasTagged = lines.contains { raw in
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard line.hasSuffix(Detect.mark) else { return false }
+            let body = String(line.dropLast(Detect.mark.count)).trimmingCharacters(in: .whitespaces)
+            return body == p.command
+        }
+
+        if !hasTagged {
             let entry = "\(p.command)   \(Detect.mark)"
             if !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) {
                 while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
@@ -792,11 +805,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch IconMode.current {
         case .hidden:
             IconMode.current = .always
-            Sys.log("icon: unhidden by user launch")
+            Sys.log(T(100))
             notify(T(60))
         case .problemOnly:
             forceShowUntil = Date().addingTimeInterval(forceShowSeconds)
-            Sys.log("icon: temporarily shown for \(Int(forceShowSeconds))s (problemOnly)")
+            Sys.log(T(101, Int(forceShowSeconds)))
             notify(T(61, Int(forceShowSeconds)))
             // 窗口结束后自动回到「仅异常时显示」
             DispatchQueue.main.asyncAfter(deadline: .now() + forceShowSeconds + 0.5) {
@@ -987,7 +1000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { cfg.usbVID = ""; cfg.usbPID = "" }
         if dev != oldDev { cfg.postCmd = "" }
         cfg.save()
-        Sys.log("target -> \(svc) [\(dev)] \(cfg.methodText)")
+        Sys.log(T(98, svc, dev, cfg.methodText))
         notify(T(21, svc, cfg.methodText))
         refreshIcon()
     }
@@ -1163,7 +1176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard a.runModal() == .alertFirstButtonReturn else { return }
 
         DispatchQueue.global(qos: .userInitiated).async {
-            Sys.log("[manual] reset USB device \(name) (\(vid):\(pid))")
+            Sys.log(T(99, name, "\(vid):\(pid)"))
             let out = Sys.run("'\(Sys.usbresetPath)' \(vid) \(pid) 2>&1")
             Sys.log(out)
             DispatchQueue.main.async { self.notify(T(79, name)) }
