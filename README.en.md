@@ -172,10 +172,12 @@ If this saved you from replugging USB over and over:
 - 🌍 Contribute a translation ([CONTRIBUTING.md](CONTRIBUTING.md) — it's a few lines of INI)
 - ☕ Buy me a coffee
 
-## Contact
+## Community & contact
 
-Author: Ocean Tang — practising lawyer, writes small tools for himself on the side.
-Feedback and ideas welcome in [Issues](../../issues).
+- 💬 Questions and ideas: [Discussions](../../discussions)
+- 🐛 Bugs and feature requests: [Issues](../../issues)
+
+Written by Ocean Tang, a lawyer based in Shenzhen who builds small tools on the side. This one came out of the daily annoyance of replugging an LTE adapter every time the lid closed.
 
 ## License
 

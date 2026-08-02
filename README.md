@@ -179,10 +179,12 @@ rm -rf /Applications/LTEGuard.app
 </p>
 -->
 
-## 联系
+## 交流与联系
 
-作者：Ocean Tang · 执业律师，业余写点自用的小工具
-反馈与建议欢迎走 [Issues](../../issues)
+- 💬 用法讨论、想法交流：[Discussions](../../discussions)
+- 🐛 Bug 与功能建议：[Issues](../../issues)
+
+作者 Ocean Tang，深圳执业律师，业余写点自用的小工具。这个 App 源于自己每天合盖后都要拔一次 LTE 网卡的烦躁。
 
 ## 许可
 
