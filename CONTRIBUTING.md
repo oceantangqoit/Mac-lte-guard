@@ -10,6 +10,13 @@ Thanks for taking the time to contribute!
 4. Test locally: drop the file into `~/.lte-guard-lang/` and pick it from the **Language** menu — no rebuild needed
 5. Open a pull request
 
+### Key numbering rules
+
+- Keys are **append-only and never reused**. When a feature is dropped, its key is *retired* — a stale file in someone's `~/.lte-guard-lang/` must never map to an unrelated string in a newer build.
+- Currently retired: `8, 9, 19, 20, 37, 62, 63` (the sleep-policy feature removed in v1.4.0).
+- New strings simply take the next free number. **Do not reserve gaps** for future features — gaps add bookkeeping without buying anything, since translators work from the English file anyway.
+- When you add a string, add it to `en.ini` first (it is the fallback for every language), then to as many others as you can.
+
 ## Code
 
 ```bash

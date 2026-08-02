@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <b>English</b>
+  <a href="README.md">简体中文</a> · <b>English</b> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a>
 </p>
 
 ---
@@ -33,6 +33,32 @@ Anyone whose Mac gets online through a **USB network adapter**:
 - 🖥 **Routers, Raspberry Pis and industrial gear** connected to a Mac over a USB NIC for debugging
 
 Same symptom every time: close the lid once, come back, no network — the LED is still on and **only a physical replug fixes it**.
+
+## Found this by searching?
+
+These all describe the same thing, and this tool exists for it:
+
+> `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos` · `usb network adapter dead after wake macos` · `thunderbolt dock ethernet not working after sleep`
+
+### How common is it
+
+Reports span years, both Intel and Apple Silicon, across Apple's own forums, MacRumors and vendor knowledge bases:
+
+- [Ethernet USB-C adapter doesn't wake up after sleep](https://forums.macrumors.com/threads/ethernet-usb-c-adapter-doesnt-wake-up-after-sleep.2220969/) — MacRumors
+- [Ethernet adapter doesn't want to wake up after sleep](https://discussions.apple.com/thread/8272273) — Apple Support Communities
+- [MacBook Air 2020 USB LAN issue after sleep](https://discussions.apple.com/thread/255925525) — Apple Support Communities
+- [Usb ethernet adapter is not working after sleep](https://discussions.apple.com/thread/7686532) · [Ethernet not waking after sleep](https://discussions.apple.com/thread/250166501) · [Ethernet reset/disconnect on wake-up](https://discussions.apple.com/thread/251074085) · [Ethernet disconnected after sleep](https://discussions.apple.com/thread/8425667)
+- [Devices are not detected after waking from sleep on macOS](https://kb.plugable.com/docking-stations-and-video/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos) — Plugable knowledge base
+
+### Why the usual advice doesn't fix it
+
+| Commonly suggested | Why it fails here |
+|---|---|
+| Reset SMC / NVRAM | Apple Silicon Macs **have no SMC reset** at all; on Intel it may help once, but the next lid close brings the problem straight back |
+| Turn off "Wake for network access" | That setting governs being woken *by* the network while asleep — a different thing from the USB session being dead *after* waking |
+| Full power cycle / update macOS | Effective but absurd — reboot the machine after every lid close? |
+| Unplug the cable instead of the adapter | Frequently suggested in threads; the original poster's own reply was "tried that too, doesn't work" |
+| **Unplug the USB adapter and plug it back in** | The one thing that reliably works — **and precisely what this tool automates** |
 
 ## The fix
 
@@ -224,12 +250,12 @@ If this saved you from replugging USB over and over:
 
 ### About the author
 
-**Ocean Tang (唐海洋)** is a practising lawyer at Beijing DOCVIT (Shenzhen) Law Firm, admitted in 2012 and a partner there from 2016 to 2021.
+**Ocean Tang (唐海洋)** is a practising lawyer at Beijing DOCVIT (Shenzhen) Law Firm, in the profession since 2011 and admitted since 2012.
 
-- **Practice areas**: commercial litigation and arbitration, criminal defence and victim representation, employment disputes (including class matters with 100+ claimants), corporate counsel work, due diligence
-- **Track record**: 400+ contentious and non-contentious matters; clients have included China Merchants Property, ZTE, Semcorp, CITIC and others
-- **Before law**: five years as in-house counsel and operations staff at a Taiwanese electronics manufacturer — hence a practical feel for supply chains and factory-floor employment
-- **Why a lawyer writes apps**: CCNA in 2002, CIW Security Analyst in 2003, and years of writing VBA case-management tooling for his own practice. This app started when he converted a first-gen DJI video link to LTE backhaul, plugged a 4G stick into his Mac — and got tired of unplugging it after every lid close.
+- **Practice areas**: commercial litigation and arbitration, criminal defence and victim representation, employment disputes, corporate counsel work, due diligence
+- **Track record**: 500+ contentious and non-contentious matters; standing counsel to a number of companies
+
+**Why a lawyer writes apps**: CCNA in 2002, CIW Security Analyst in 2003, law degree from Wuhan University of Technology in 2005 — and years of writing VBA + Excel case-management tooling for his own practice (matter tracking, document generation, OCR extraction, automated mail). This app has an equally concrete origin: he converted a first-gen DJI video link to LTE backhaul for fun, plugged a 4G stick into his Mac, and got tired of unplugging it after every single lid close.
 
 Happy to talk law or code — [Discussions](../../discussions) or an issue both work.
 

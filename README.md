@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <b>简体中文</b> · <a href="README.en.md">English</a>
+  <b>简体中文</b> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a>
 </p>
 
 ---
@@ -33,6 +33,36 @@
 - 🖥 **软路由 / 树莓派 / 工控设备通过 USB 网卡直连 Mac 调试**
 
 共同点：合盖一次，回来就断网，指示灯还亮着，**只能拔了重插**。
+
+## 如果你是搜索着找过来的
+
+这些说法描述的多半是同一件事，本工具就是为它写的：
+
+> Mac 睡眠唤醒后网线没反应 · 合盖后 USB 网卡断网 · 外接网卡要拔了重插才恢复 · USB-C 转以太网适配器休眠后失效 · 扩展坞网口睡醒不通 · LTE 上网卡合盖后掉线 · 4G 网卡唤醒后无法上网 · 指示灯亮但没网 · 接口还在但 ping 不通
+
+英文常见搜索词（本工具同样适用）：
+
+> `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
+
+### 这个问题有多普遍
+
+Apple 官方社区、MacRumors、Plugable 知识库里同类求助跨越多年、横跨 Intel 与 Apple Silicon：
+
+- [Ethernet USB-C adapter doesn't wake up after sleep](https://forums.macrumors.com/threads/ethernet-usb-c-adapter-doesnt-wake-up-after-sleep.2220969/) — MacRumors
+- [Ethernet adapter doesn't want to wake up after sleep](https://discussions.apple.com/thread/8272273) — Apple 官方社区
+- [MacBook Air 2020 USB LAN issue after sleep](https://discussions.apple.com/thread/255925525) — Apple 官方社区
+- [Usb ethernet adapter is not working after sleep](https://discussions.apple.com/thread/7686532) · [Ethernet not waking after sleep](https://discussions.apple.com/thread/250166501) · [Ethernet reset/disconnect on wake-up](https://discussions.apple.com/thread/251074085) · [Ethernet disconnected after sleep](https://discussions.apple.com/thread/8425667)
+- [Devices are not detected after waking from sleep on macOS](https://kb.plugable.com/docking-stations-and-video/devices-are-not-detected-after-waking-from-sleep-or-after-rebooting-on-macos) — Plugable 官方知识库
+
+### 为什么常见的"官方办法"解决不了
+
+| 常被推荐的做法 | 为什么在这个场景下没用 |
+|---|---|
+| 重置 SMC / NVRAM | Apple Silicon 机型**根本没有 SMC 重置**这一操作；即便在 Intel 机上做了，下次合盖照样复现——它治的不是这个病 |
+| 关闭「唤醒以供网络访问」(Wake for network access) | 那个开关管的是"睡眠中被网络唤醒"，与醒来后 USB 会话失效是两码事 |
+| 完全断电重启 / 更新系统 | 有效但荒谬——难道每次合盖后都重启一次电脑？ |
+| 拔掉网线而不是拔适配器 | 论坛里被反复推荐，实测无效（原帖作者原话："也试过了，不管用"） |
+| **拔下 USB 适配器再插回** | 唯一稳定有效的办法——**而这正是本工具用软件自动完成的事** |
 
 ## 方案
 
@@ -235,14 +265,12 @@ rm -rf /Applications/LTEGuard.app
 
 ### 关于作者
 
-**唐海洋（Ocean Tang）**，北京市东元（深圳）律师事务所执业律师，2011 年入行、2012 年执业至今，2016—2021 年任该所合伙人。
+**唐海洋（Ocean Tang）**，北京市东元（深圳）律师事务所执业律师，2011 年入行、2012 年执业至今。
 
-- **业务领域**：商事诉讼与仲裁、刑事辩护与刑事被害人代理、劳动争议（含百人以上群体案件）、企业常年法律顾问、尽职调查
-- **执业经历**：代理各类诉讼与非诉案件 400 余宗；曾服务招商地产、中兴通讯、星源材质、中信置业、南开建集团等企业
-- **入行之前**：在台资电子企业做过 5 年法务与经营管理，因此对制造业、供应链、劳动用工的实际运作比较熟悉
-- **荣誉**：广东省司法厅首届律师行业技能大赛一等奖、广东省总工会律师行业业务能手
+- **业务领域**：商事诉讼与仲裁、刑事辩护与刑事被害人代理、劳动争议、企业常年法律顾问、尽职调查
+- **执业经历**：代理各类诉讼与非诉案件 500 余宗，多家单位常年法律顾问
 
-**为什么律师会写 App**：我 2002 年就考了 CCNA、2003 年考了 CIW 网络安全分析师，一直用 VBA 给自己写案件管理工具（案件跟踪、制式文书生成、OCR 提取、自动邮件）。这个 App 的起因也很具体——我把 DJI 一代图传改成 LTE 回传来玩，Mac 上插了个 4G 上网卡，结果每次合盖再打开都要拔一次，烦到不行，索性写了它。
+**为什么律师会写 App**：我 2002 年就考了 CCNA、2003 年考了 CIW 网络安全分析师，2005 年毕业于武汉理工大学。一直用 VBA + Excel 给自己写案件管理工具（案件跟踪、制式文书生成、OCR 提取、自动邮件）。这个 App 的起因也很具体——我把 DJI 一代图传改成 LTE 回传来玩，Mac 上插了个 4G 上网卡，结果每次合盖再打开都要拔一次，烦到不行，索性写了它。
 
 法律上的事、或者技术上的事想聊，都欢迎来 [Discussions](../../discussions) 或发 Issue。
 
