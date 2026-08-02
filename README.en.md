@@ -124,13 +124,15 @@ Reports span years, both Intel and Apple Silicon, across Apple's own forums, Mac
 
 ## The fix
 
-LTE Guard is a watchdog that sits in your menu bar and listens for system wake events. On wake it checks the target adapter: if the gateway does not respond, it performs a **software replug** on that USB device via IOKit (`USBDeviceReEnumerate`) — equivalent to physically unplugging and reinserting it. **Recovery typically takes about 8 seconds.**
+LTE Guard is a watchdog that sits in your menu bar and listens for system wake events. On wake it **immediately** performs a **software replug** on the target USB device via IOKit (`USBDeviceReEnumerate`) — equivalent to physically unplugging and reinserting it. No "should we repair?" pre-checks: if you installed this tool, you are a zombie-device victim, and checking just wastes time. Recovery counts only when the **gateway actually answers a ping**, typically in **about 8 seconds** — close to the physical limit of a manual replug.
 
 - 🎯 **Vendor-agnostic** — VID/PID are detected when you pick the adapter; there is no built-in device list
+- 🖇 **Guards several adapters at once** — tick as many as you like; each is checked and repaired independently, in parallel
 - 🔌 **Works with non-USB adapters too** — falls back to restarting the network service
-- 🛠 **Post-recovery hook** — run your own command after recovery (reconnect a proxy, redial, …)
-- 🌍 **62 languages** — follows your system language, switchable from the menu
-- 🪶 **Zero dependencies** — a single app; no daemons to install, no Homebrew required
+- 🛠 **Two-phase command hooks** — one set runs **the moment disconnection is detected** (e.g. open the Network pane and watch the repair live), another **after recovery** (reconnect a proxy, redial, …)
+- 🔔 **Success-only notifications** — you get exactly one notification, when the adapter is back *and* the internet is verified to actually work (with the time it took); repair-in-progress, offline and failure states show on the menu bar icon instead (spinner / `✓8s` / `⚠︎` / `✕`)
+- 🌍 **62 languages** — UI and logs fully localized, follows your system language, switchable from the menu
+- 🪶 **Zero dependencies** — a single app; no daemons, no Homebrew, no elevated privileges
 
 ## Install
 
@@ -173,7 +175,7 @@ If anything looks off, use **Run diagnostics** in the menu — it checks each it
 ## Usage
 
 1. A signal icon appears in the menu bar
-2. Open the menu → **Choose target…** → select your adapter (entries marked `· USB` support software replug)
+2. Open the menu → **Choose target…** → tick your adapter — **multiple selections allowed** (entries marked `· USB` support software replug)
 3. Done. Close the lid, open it later — if the link dropped, it is already fixed
 
 Other menu items:
@@ -184,7 +186,7 @@ Other menu items:
 | Open log | Opens `~/.lte-wake.log` |
 | Launch at login | Toggle any time (works for DMG installs too) |
 | Run diagnostics | Self-check with concrete fixes |
-| Command after recovery… | Optional hook: run several shell commands in order once the adapter is back — one per line, plus a few common ones you can just tick |
+| Command after recovery… | Two-phase hooks: "on disconnection" (e.g. open the Network pane to watch the repair) and "after recovery" (e.g. reconnect a proxy) — one command per line, run in order, plus common ones you can just tick |
 | Reset a USB device | Lists all USB devices and software-replugs the one you choose — works for audio interfaces, webcams, drives and docks too |
 | Menu bar icon | Always show / only when there is a problem / hidden (**to bring it back, just open the app again from Applications**) |
 | Open config folder | Reveals the config file, log and language folder in Finder |
@@ -222,28 +224,32 @@ name=English
 
 ## Configuration
 
-`~/.lte-guard.conf` (maintained by the app, editable by hand):
+`~/.lte-guard.conf` (maintained by the app, editable by hand; old single-target configs upgrade automatically):
 
 ```sh
-DEV="en2"              # network interface
-SERVICE="My LTE"       # network service name (used for the restart-service fallback)
-USB_VID="2c7c"         # USB vendor ID; leave empty to force the restart-service method
-USB_PID="0125"         # USB product ID
-POST_CMD=''            # command to run after recovery, e.g. restart a proxy
+# one heal target per line, tab-separated: interface, service name, USB_VID, USB_PID
+TARGETS='en2	My LTE	2c7c	0125'
+PRE_CMD=''             # runs the moment disconnection is detected (network is down — don't rely on it)
+POST_CMD=''            # runs after recovery, e.g. restart a proxy
 ```
 
-`POST_CMD` example — restart a gost proxy bound to that interface:
+**Both hooks take multiple commands** — one per line, run in order. `PRE_CMD` fires **instantly** on detection: open the Network pane there and it comes up just in time to watch the whole repair.
 
-**`POST_CMD` takes multiple commands** — write one per line in the dialog and they run in order. The dialog also offers three common ones as checkboxes:
+The dialog offers checkboxes in two groups — ticking writes into the matching text box immediately, unticking removes it:
 
-- Open System Settings → Network, so you can watch the dropped connection come back with your own eyes
-- Show a system notification when done
+**Common** (always offered)
+
+- Open System Settings → Network (goes to the on-disconnection box) — watch the dropped connection come back with your own eyes
 - Play a sound
+- Send a webhook notification (replace the placeholder URL with your own; good for unattended machines)
 
-For example, restarting a proxy, opening Network settings and posting a notification all at once:
+The recovery notification and internet check are **built in** — nothing to tick: after repair the app probes the internet through that very adapter, and notifies only when it genuinely works (with the seconds it took). Interface-up-but-offline shows `⚠︎`, failure shows `✕` — icon only, no nagging.
+
+For example, opening the Network pane on disconnection, then restarting a proxy and playing a sound after recovery:
 
 ```sh
-POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nopen -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane\nosascript -e \'display notification "Adapter is back online" with title "LTE Guard"\''
+PRE_CMD='open "x-apple.systempreferences:com.apple.Network-Settings.extension"'
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nafplay /System/Library/Sounds/Glass.aiff'
 ```
 
 In the config file, newlines are written as `\n` and single quotes as `\'` (the app escapes them automatically; follow the same form if editing by hand).
@@ -251,16 +257,18 @@ In the config file, newlines are written as `\n` and single quotes as `\'` (the 
 ## How it works
 
 ```
-System wake (IORegisterForSystemPower)
-      ↓  wait 5s for the interface to settle
-ping the gateway, confirmed twice   → reachable → done
-      ↓ unreachable
+System wake (IORegisterForSystemPower + NSWorkspace, belt and braces)
+      ↓  run PRE_CMD immediately (e.g. open the Network pane); wait 1s for USB to power up
 USBDeviceReEnumerate                → non-USB: networksetup service restart
-      ↓  poll until an IP is assigned (up to 60s)
-run POST_CMD → write log → refresh the menu bar icon
+      ↓  no pre-checks — if you installed this, you're a zombie-device victim
+poll every second: recovered only when the gateway answers a ping (a zombie IP can't fake that)
+      ↓  recovered
+run POST_CMD → probe the internet through that adapter → notify only if it truly works (with timing)
+      ↓
+the icon tells the whole story: spinner = repairing, ✓8s = done, ⚠︎ = offline, ✕ = failed
 ```
 
-A 90-second cooldown prevents flapping.
+Multiple adapters are repaired independently, in parallel. A 15-second cooldown absorbs the duplicate wake signals from the two listeners.
 
 ## Why there is no "keep online during sleep"
 

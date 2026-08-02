@@ -99,13 +99,15 @@ Ku rubuga rwa Apple, kuri MacRumors, no muri knowledge base ya Plugable, ibibazo
 
 ## Igisubizo
 
-LTE Guard ni umurinzi uguma ku murongo w'ibikubiyemo, utega amatwi ibyabaye byo gukanguka kwa sisitemu, maze nyuma yo gukanguka ugasuzuma igikoresho cyahisemo: niba ping itagera kuri gateway, ukoresha IOKit gukorera icyo gikoresho cya USB **gukuramo no gushyiramo bya porogaramu (USBDeviceReEnumerate)**, bingana no gukora ibyo n'intoki, kandi umurongo ugaruka ubusanzwe **mu masegonda 8 hafi**.
+LTE Guard ni umurinzi uguma ku murongo w'ibikubiyemo, utega amatwi ibyabaye byo gukanguka kwa sisitemu. Iyo sisitemu ikangutse, **ako kanya** ukoresha IOKit ugakorera igikoresho cya USB cyagenwe **gukuramo no gushyiramo bya porogaramu** (`USBDeviceReEnumerate`) — bingana no kugikuramo ukongera ukagishyiramo n'intoki. Nta suzuma ribanza ryo kubaza ngo «ese hakenewe gusana?»: uwashyizeho iyi porogaramu aba ari umuhohotewe w'igikoresho cyapfuye gihagaze, kandi gusuzuma ni ukwononera igihe gusa. Gusanwa kubarwa gusa iyo **ping igeze kuri gateway koko**, ubusanzwe **mu masegonda 8 hafi** — hafi y'urugero ntarengwa rwo gukuramo no gushyiramo n'intoki.
 
 - 🎯 **Ntibireba ubwoko** — iyo uhisemo igikoresho, VID/PID bimenyekana byonyine, nta rutonde rw'ibikoresho rwabitswe imbere
+- 🖇 **Irinda ibikoresho byinshi icyarimwe** — hitamo ibyo ushaka byose; buri kimwe gisuzumwa kandi gisanwa ukwacyo, byose icyarimwe
 - 🔌 **Bikora no ku bikoresho bitari USB** — bihita bikoresha kongera gutangiza serivisi y'urusobe
-- 🛠 **Ushobora kongeraho itegeko** — nyuma yo gusanwa, hakorwa itegeko wihitiyemo (kongera guhuza proxy, kongera guhamagara, n'ibindi)
-- 🌍 **Indimi 62** — bikurikira ururimi rwa sisitemu ku buryo bwikora, ushobora no guhitamo mu bikubiyemo
-- 🪶 **Nta bindi bikenewe** — porogaramu imwe gusa, nta serivisi z'inyuma zishyirwaho, nta Homebrew
+- 🛠 **Amategeko y'ibyiciro bibiri** — amwe akorwa **ako kanya umurongo ucitse** (urugero gufungura urupapuro rw'urusobe ukareba uko gusana bigenda), andi **nyuma yo gusanwa** (kongera guhuza proxy, kongera guhamagara, n'ibindi)
+- 🔔 **Ubutumwa buza gusa iyo byagenze neza** — ubona ubutumwa bumwe gusa, iyo igikoresho cyagarutse **kandi** byemejwe ko interineti ikora koko (hamwe n'igihe byatwaye); gusana bikirimo, kutagira interineti no kunanirwa bigaragazwa gusa ku kimenyetso cyo ku murongo w'ibikubiyemo (akaziga kazenguruka / `✓8s` / `⚠︎` / `✕`)
+- 🌍 **Indimi 62** — imigaragarire na log byahinduwe mu ndimi zose; bikurikira ururimi rwa sisitemu ku buryo bwikora, ushobora no guhitamo mu bikubiyemo
+- 🪶 **Nta bindi bikenewe** — porogaramu imwe gusa: nta serivisi z'inyuma zishyirwaho, nta Homebrew, kandi nta burenganzira bwisumbuye na buke bukenewe
 
 ## Kwinjiza
 
@@ -148,7 +150,7 @@ Iyo hari ikibazo, banza ukande **Koresha isuzuma** mu bikubiyemo; risuzuma buri 
 ## Uko bikoreshwa
 
 1. Iyo yatangiye, ikimenyetso cy'ikimenyetso cy'urusobe kigaragara ku murongo w'ibikubiyemo
-2. Fungura ibikubiyemo → **Hitamo igikoresho cyo gusanwa…** → hitamo igikoresho cyawe (ibifite ikimenyetso `· USB` bishobora gukurwamo no gushyirwamo mu buryo bwa porogaramu)
+2. Fungura ibikubiyemo → **Hitamo igikoresho cyo gusanwa…** → hitamo igikoresho cyawe — **ushobora guhitamo byinshi** (ibifite ikimenyetso `· USB` bishobora gukurwamo no gushyirwamo mu buryo bwa porogaramu)
 3. Byarangiye. Ubutaha ufunze igifuniko, isinziriye, ukongera ugafungura, niba umurongo waciye ugarurwa wenyine
 
 Ibindi biri mu bikubiyemo:
@@ -159,7 +161,7 @@ Ibindi biri mu bikubiyemo:
 | Reba log | Ifungura `~/.lte-wake.log` |
 | Gutangira igihe mudasobwa itangiye | Switch, ushobora kuyihindura igihe icyo ari cyo cyose (n'abinjije bakoresheje DMG barabikoresha) |
 | Koresha isuzuma | Kwisuzuma buri kintu kimwe kimwe no gutanga igisubizo |
-| Itegeko rikorwa nyuma yo gusanwa… | Ushobora kongeraho: nyuma y'uko igikoresho kigarutse, hakorwa itegeko rimwe rya Shell (niba wasize ubusa nta kibaho) |
+| Itegeko rikorwa nyuma yo gusanwa… | Amategeko y'ibyiciro bibiri: «iyo umurongo ucitse» (urugero gufungura urupapuro rw'urusobe ukareba uko gusana bigenda) na «nyuma yo gusanwa» (urugero kongera guhuza proxy) — itegeko rimwe kuri buri murongo, akorwa akurikirana; hari n'akunze gukoreshwa wihitiramo ukanda gusa |
 | Gusubiza mu buryo bushya igikoresho cya USB | Bigaragaza ibikoresho bya USB byose, ugakuramo ugashyiramo mu buryo bwa porogaramu ukanda rimwe — birakora no ku bikoresho by'amajwi, kamera, disiki, na dock |
 | Ikimenyetso ku murongo w'ibikubiyemo | Kigaragara buri gihe / kigaragara gusa iyo hari ikibazo / gihishwe (**iyo wagihishe, ongera ufungure porogaramu uyikuye muri «Applications» kugira ngo ugarure**) |
 | Fungura ububiko bw'igenamiterere | Gufungura muri Finder ubu bwose: igenamiterere, log, n'indimi |
@@ -206,35 +208,51 @@ author=……
 
 ## Dosiye y'igenamiterere
 
-`~/.lte-guard.conf` (porogaramu irayicunga yonyine, ariko ushobora no kuyihindura n'intoki):
+`~/.lte-guard.conf` (porogaramu irayicunga yonyine, ariko ushobora no kuyihindura n'intoki; igenamiterere rya kera ry'igikoresho kimwe rivugururwa ryonyine):
 
 ```sh
-DEV="en2"              # igikoresho cy'urusobe
-SERVICE="My LTE"       # izina rya serivisi y'urusobe (rikoreshwa mu kongera gutangiza serivisi ku bikoresho bitari USB)
-USB_VID="2c7c"         # USB Vendor ID; niba usize ubusa hakoreshwa kongera gutangiza serivisi
-USB_PID="0125"         # USB Product ID
-POST_CMD=''            # itegeko rikorwa nyuma yo gusanwa, urugero kongera gutangiza proxy
+# igikoresho kimwe cyo gusanwa kuri buri murongo, ibice bitandukanyijwe na tab: igikoresho, izina rya serivisi, USB_VID, USB_PID
+TARGETS='en2	My LTE	2c7c	0125'
+PRE_CMD=''             # rikorwa ako kanya umurongo ucitse (icyo gihe urusobe ntirukora — ntukarwishingikirizeho)
+POST_CMD=''            # rikorwa nyuma yo gusanwa, urugero kongera gutangiza proxy
 ```
 
-Urugero rwa `POST_CMD` — kongera gutangiza proxy ya gost ihujwe n'icyo gikoresho nyuma yo gusanwa:
+**Ibyo byiciro byombi byakira amategeko menshi** — itegeko rimwe kuri buri murongo, akorwa akurikirana. `PRE_CMD` ikorwa **ako kanya** umurongo ucitse: ushyizemo gufungura urupapuro rw'urusobe, rufunguka ku gihe nyacyo maze ukareba uko gusana byose bigenda kuva ku ntangiriro kugeza ku iherezo.
+
+Akadirishya kakwereka uduce two gukandaho dusanzwe: iyo utoranyije kamwe, itegeko ryako rihita ryandikwa mu kazu k'inyandiko kabigenewe; iyo ukuyeho, rirasibwa:
+
+**Ibikunze gukoreshwa** (bihari buri gihe)
+
+- Gufungura Igenamiterere rya sisitemu → Urusobe (rijya mu kazu k'«iyo umurongo ucitse») — ukirebera n'amaso yawe uko umurongo waciye ugaruka
+- Gucuranga ijwi
+- Kohereza ubutumwa bwa Webhook (simbuza URL y'agateganyo iyawe; ni byiza kuri mudasobwa zidacungwa)
+
+Ubutumwa bwo gusanwa n'isuzuma ry'interineti **byubatswe imbere** — nta na kimwe ugomba gutoranya: nyuma yo gusana, porogaramu igerageza interineti inyuze kuri icyo gikoresho nyacyo, ikakumenyesha gusa iyo ikora koko (hamwe n'amasegonda byatwaye). Iyo igikoresho cyagarutse ariko interineti idahari hagaragara `⚠︎`, iyo byananiranye hakagaragara `✕` — ku kimenyetso gusa, nta kubangamira.
+
+Urugero: iyo umurongo ucitse hagafunguka urupapuro rw'urusobe, nyuma yo gusanwa hakongera gutangizwa proxy hagacurangwa ijwi:
 
 ```sh
-POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte'
+PRE_CMD='open "x-apple.systempreferences:com.apple.Network-Settings.extension"'
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nafplay /System/Library/Sounds/Glass.aiff'
 ```
+
+Muri dosiye y'igenamiterere, gucamo imirongo byandikwa nka `\n`, utwuguruzo tumwe tukandikwa nka `\'` (porogaramu ibikora yonyine; nawe ukurikize ubwo buryo iyo uhindura n'intoki).
 
 ## Uko bikora
 
 ```
-Sisitemu irakanguka (IORegisterForSystemPower)
-      ↓  gutegereza amasegonda 5 kugira ngo igikoresho gihamye
-ping kuri gateway, kwemeza kabiri   → birakora → birarangiye
-      ↓ ntibikora
+Sisitemu irakanguka (IORegisterForSystemPower + NSWorkspace — inzira ebyiri z'umutekano)
+      ↓  gukora PRE_CMD ako kanya (urugero gufungura urupapuro rw'urusobe); gutegereza isegonda 1 kugira ngo USB ibone umuriro
 USBDeviceReEnumerate      → bitari USB: networksetup yongera gutangiza serivisi
-      ↓  gutegereza kubona IP (kugeza ku masegonda 60)
-gukora POST_CMD → kwandika log → kuvugurura ikimenyetso ku murongo w'ibikubiyemo
+      ↓  nta suzuma ribanza — uwashyizeho iyi porogaramu aba ari umuhohotewe w'igikoresho cyapfuye gihagaze
+gusuzuma buri segonda: gusanwa kubarwa gusa iyo gateway isubije ping (IP y'ikinyoma ntishobora kubihimba)
+      ↓  byasanwe
+gukora POST_CMD → kugerageza interineti kuri icyo gikoresho → kumenyesha gusa iyo ikora koko (hamwe n'igihe byatwaye)
+      ↓
+ikimenyetso kivuga inkuru yose: akaziga kazenguruka = birimo gusanwa, ✓8s = byarangiye, ⚠︎ = nta interineti, ✕ = byananiranye
 ```
 
-Hariho ikiruhuko cy'amasegonda 90, kugira ngo bitisubiramo kenshi.
+Ibikoresho byinshi bisanwa buri kimwe ukwacyo, byose icyarimwe. Ikiruhuko cy'amasegonda 15 kigamije gusa kumira ibimenyetso byo gukanguka bisubiranya biva ku bumva bubiri.
 
 ## Guhuza n'ibikoresho n'ibyagerageje
 

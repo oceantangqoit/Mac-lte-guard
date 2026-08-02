@@ -122,13 +122,15 @@ In der offiziellen Apple-Community, bei MacRumors und in der Plugable-Wissensdat
 
 ## Die Lösung
 
-LTE Guard ist ein Wächter, der dauerhaft in der Menüleiste sitzt, die Aufwach-Ereignisse des Systems überwacht und den ausgewählten Netzwerkadapter nach dem Aufwachen automatisch prüft: Antwortet das Gateway nicht auf ping, führt das Programm über IOKit ein **softwareseitiges Aus- und Einstecken (USBDeviceReEnumerate)** des USB-Geräts durch. Das entspricht dem manuellen Umstecken und stellt die Verbindung **in der Regel in rund 8 Sekunden** wieder her.
+LTE Guard ist ein Wächter, der dauerhaft in der Menüleiste sitzt und die Aufwach-Ereignisse des Systems überwacht. **Unmittelbar** nach dem Aufwachen führt das Programm über IOKit ein **softwareseitiges Aus- und Einstecken (USBDeviceReEnumerate)** des USB-Geräts durch – das entspricht dem manuellen Umstecken. Auf eine Vorprüfung nach dem Motto „muss überhaupt repariert werden?“ wird bewusst verzichtet: Wer dieses Werkzeug installiert, hat ohnehin einen Adapter, der sich aufhängt – Prüfen wäre reine Zeitverschwendung. Als wiederhergestellt gilt die Verbindung erst, wenn das **Gateway tatsächlich auf ping antwortet** – **in der Regel nach rund 8 Sekunden**, nahe an der physikalischen Grenze des manuellen Umsteckens.
 
 - 🎯 **Herstellerunabhängig** – VID/PID werden nach der Auswahl des Adapters automatisch ermittelt, es gibt keine eingebaute Geräteliste
+- 🖇 **Überwacht mehrere Adapter gleichzeitig** – einfach alle gewünschten ankreuzen; jeder wird unabhängig geprüft und parallel repariert
 - 🔌 **Auch für Nicht-USB-Adapter** – greift automatisch auf den Neustart des Netzwerkdienstes zurück
-- 🛠 **Nachgelagerte Befehle möglich** – nach der Wiederherstellung wird automatisch ein eigener Befehl ausgeführt (Proxy neu verbinden, neu einwählen usw.)
-- 🌍 **62 Sprachen** – folgt automatisch der Systemsprache, lässt sich im Menü auch manuell umstellen
-- 🪶 **Ohne Abhängigkeiten** – eine einzige App, kein Daemon, kein Homebrew
+- 🛠 **Befehls-Hooks in zwei Phasen** – ein Satz läuft **im Moment der erkannten Unterbrechung** (z. B. die Netzwerkeinstellungen öffnen und der Reparatur live zusehen), ein weiterer **nach der Wiederherstellung** (Proxy neu verbinden, neu einwählen usw.)
+- 🔔 **Benachrichtigung nur bei Erfolg** – genau eine Meldung, sobald der Adapter wieder da ist *und* der Internetzugang nachweislich funktioniert (mit Zeitangabe); laufende Reparatur, fehlender Internetzugang und Fehlschlag zeigen sich nur im Menüleistensymbol (Kreisel / `✓8s` / `⚠︎` / `✕`)
+- 🌍 **62 Sprachen** – Oberfläche und Protokoll vollständig lokalisiert; folgt automatisch der Systemsprache, lässt sich im Menü auch manuell umstellen
+- 🪶 **Ohne Abhängigkeiten** – eine einzige App, kein Daemon, kein Homebrew, keinerlei erhöhte Rechte
 
 ## Installation
 
@@ -171,7 +173,7 @@ Bei Problemen rufen Sie zuerst **Diagnose ausführen** im Menü auf. Sie prüft 
 ## Verwendung
 
 1. Nach dem Start erscheint ein Signalsymbol in der Menüleiste
-2. Menü öffnen → **Zu heilendes Gerät auswählen …** → Ihren Netzwerkadapter wählen (Einträge mit der Kennzeichnung `· USB` unterstützen das softwareseitige Aus- und Einstecken)
+2. Menü öffnen → **Zu heilendes Gerät auswählen …** → Ihren Netzwerkadapter wählen – **Mehrfachauswahl möglich** (Einträge mit der Kennzeichnung `· USB` unterstützen das softwareseitige Aus- und Einstecken)
 3. Fertig. Ab jetzt wird nach dem Zuklappen und Aufklappen eine unterbrochene Verbindung von selbst repariert
 
 Die übrigen Menüpunkte:
@@ -182,7 +184,7 @@ Die übrigen Menüpunkte:
 | Protokoll anzeigen | Öffnet `~/.lte-wake.log` |
 | Bei der Anmeldung starten | Schalter, jederzeit änderbar (auch bei Installation per DMG verfügbar) |
 | Diagnose ausführen | Prüft alle Punkte und nennt die passende Abhilfe |
-| Befehl nach der Wiederherstellung … | Optionaler Hook: Nach der Wiederherstellung des Adapters wird automatisch ein Shell-Befehl ausgeführt (leer lassen = keine Aktion) |
+| Befehl nach der Wiederherstellung … | Hooks in zwei Phasen: „bei erkannter Unterbrechung“ (z. B. die Netzwerkeinstellungen öffnen und der Reparatur zusehen) und „nach der Wiederherstellung“ (z. B. Proxy neu verbinden) – ein Befehl pro Zeile, der Reihe nach ausgeführt; häufig gebrauchte Aktionen lassen sich einfach ankreuzen |
 | USB-Gerät zurücksetzen | Listet alle USB-Geräte auf, softwareseitiges Aus- und Einstecken per Klick – ebenso geeignet für Audio-Interfaces, Webcams, Festplatten und Docks |
 | Menüleistensymbol | Immer anzeigen / nur bei Störungen anzeigen / ausblenden (**nach dem Ausblenden holen Sie es zurück, indem Sie die App aus dem Ordner „Programme“ erneut öffnen**) |
 | Konfigurationsordner öffnen | Öffnet Konfiguration, Protokoll und Sprachordner mit einem Klick im Finder |
@@ -229,35 +231,51 @@ author=……
 
 ## Konfigurationsdatei
 
-`~/.lte-guard.conf` (wird von der App automatisch gepflegt, kann aber auch von Hand bearbeitet werden):
+`~/.lte-guard.conf` (wird von der App automatisch gepflegt, kann aber auch von Hand bearbeitet werden; alte Konfigurationen mit nur einem Überwachungsziel werden automatisch übernommen):
 
 ```sh
-DEV="en2"              # Netzwerkschnittstelle
-SERVICE="My LTE"       # Name des Netzwerkdienstes (für den Dienstneustart bei Nicht-USB-Geräten)
-USB_VID="2c7c"         # USB-Hersteller-ID; leer lassen, um auf den Dienstneustart umzuschalten
-USB_PID="0125"         # USB-Produkt-ID
-POST_CMD=''            # Befehl nach der Wiederherstellung, z. B. Neustart des Proxy-Prozesses
+# ein Heilungsziel pro Zeile, durch Tabulatoren getrennt: Schnittstelle, Dienstname, USB_VID, USB_PID
+TARGETS='en2	My LTE	2c7c	0125'
+PRE_CMD=''             # läuft im Moment der erkannten Unterbrechung (das Netzwerk ist gerade ausgefallen – nicht darauf verlassen)
+POST_CMD=''            # läuft nach der Wiederherstellung, z. B. Neustart eines Proxys
 ```
 
-Beispiel für `POST_CMD` – nach der Wiederherstellung einen an diesen Adapter gebundenen gost-Proxy neu starten:
+**Beide Hooks nehmen mehrere Befehle entgegen** – ein Befehl pro Zeile, ausgeführt der Reihe nach. `PRE_CMD` startet **im selben Augenblick** wie die Erkennung: Wer dort die Netzwerkeinstellungen öffnen lässt, kommt gerade rechtzeitig, um die gesamte Reparatur mitzuverfolgen.
+
+Der Dialog bietet Ankreuzfelder in zwei Gruppen – ein Häkchen trägt den Befehl sofort in das passende Textfeld ein, das Entfernen löscht ihn wieder:
+
+**Häufig verwendet** (immer verfügbar)
+
+- Systemeinstellungen → Netzwerk öffnen (landet im Feld für die Unterbrechung) – sehen Sie mit eigenen Augen zu, wie die abgerissene Verbindung zurückkehrt
+- Einen Hinweiston abspielen
+- Eine Webhook-Benachrichtigung senden (ersetzen Sie die Platzhalter-URL durch Ihre eigene; praktisch für unbeaufsichtigte Rechner)
+
+Wiederherstellungs-Benachrichtigung und Internetprüfung sind **fest eingebaut** – hier ist nichts anzukreuzen: Nach der Reparatur prüft die App über genau diesen Adapter den tatsächlichen Internetzugang und meldet sich erst, wenn er wirklich funktioniert (mit Angabe der benötigten Sekunden). Ist die Schnittstelle zwar wieder da, aber ohne Internetzugang, erscheint `⚠︎`, bei einem Fehlschlag `✕` – nur im Symbol, ohne aufdringliche Meldungen.
+
+Ein Beispiel – bei der Unterbrechung die Netzwerkeinstellungen öffnen, nach der Wiederherstellung den Proxy neu starten und einen Hinweiston abspielen:
 
 ```sh
-POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte'
+PRE_CMD='open "x-apple.systempreferences:com.apple.Network-Settings.extension"'
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nafplay /System/Library/Sounds/Glass.aiff'
 ```
+
+In der Konfigurationsdatei werden Zeilenumbrüche als `\n` und einfache Anführungszeichen als `\'` geschrieben (die App übernimmt das Escaping automatisch; beim Bearbeiten von Hand bitte dieselbe Form verwenden).
 
 ## Funktionsweise
 
 ```
-Aufwachen des Systems (IORegisterForSystemPower)
-      ↓  5 Sekunden warten, bis die Schnittstelle stabil ist
-ping zum Gateway, zweifach bestätigt  → erreichbar → Ende
-      ↓ nicht erreichbar
+Aufwachen des Systems (IORegisterForSystemPower + NSWorkspace, doppelt abgesichert)
+      ↓  sofort PRE_CMD ausführen (z. B. Netzwerkeinstellungen öffnen); 1 s warten, bis USB Strom hat
 USBDeviceReEnumerate      → falls kein USB: Dienstneustart per networksetup
-      ↓  im Polling auf eine IP warten (max. 60 s)
-POST_CMD ausführen → Protokoll schreiben → Menüleistensymbol aktualisieren
+      ↓  keine Vorprüfung – wer dieses Werkzeug installiert, hat ohnehin einen Adapter, der sich aufhängt
+jede Sekunde prüfen: wiederhergestellt erst, wenn das Gateway auf ping antwortet (eine bloß vorhandene IP kann ping nicht täuschen)
+      ↓  wiederhergestellt
+POST_CMD ausführen → Internetzugang über genau diesen Adapter messen → Meldung nur bei echtem Erfolg (mit Zeitangabe)
+      ↓
+das Symbol erzählt die ganze Geschichte: Kreisel = Reparatur läuft, ✓8s = fertig, ⚠︎ = ohne Internetzugang, ✕ = fehlgeschlagen
 ```
 
-Mit 90 Sekunden Abkühlzeit, um wiederholtes Flattern zu vermeiden.
+Mehrere Adapter werden unabhängig voneinander und parallel repariert. Die Abkühlzeit von 15 Sekunden dient allein dazu, die doppelt eintreffenden Aufwachsignale der beiden Beobachter abzufangen.
 
 ## Kompatibilität und Teststand
 

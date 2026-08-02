@@ -115,13 +115,15 @@ En la comunidad oficial de Apple, en MacRumors y en la base de conocimiento de P
 
 ## La solución
 
-LTE Guard es una herramienta residente en la barra de menús que escucha los eventos de despertar del sistema y comprueba automáticamente el adaptador vigilado: si el ping a la puerta de enlace falla, aplica un **desenchufado por software (USBDeviceReEnumerate)** al dispositivo USB mediante IOKit, equivalente a hacerlo con la mano, y normalmente **la conexión vuelve en unos 8 segundos**.
+LTE Guard es una herramienta residente en la barra de menús que escucha los eventos de despertar del sistema: al despertar aplica **de inmediato** un **desenchufado por software (USBDeviceReEnumerate)** al dispositivo USB vigilado mediante IOKit, equivalente a hacerlo con la mano. Sin comprobaciones previas de «¿hará falta reparar?»: quien instala esta herramienta ya es víctima del dispositivo zombi, y comprobar solo es perder el tiempo. La recuperación solo cuenta cuando **la puerta de enlace responde de verdad al ping**, normalmente **en unos 8 segundos**, rozando el límite físico de un desenchufado manual.
 
 - 🎯 **Sin marcas predefinidas** — al seleccionar el adaptador detecta su VID/PID automáticamente; no hay lista interna de dispositivos
+- 🖇 **Vigila varios adaptadores a la vez** — marca tantos como quieras; cada uno se comprueba y se repara por su cuenta, en paralelo
 - 🔌 **También sirve para adaptadores no USB** — recurre automáticamente a reiniciar el servicio de red
-- 🛠 **Comandos posteriores** — ejecuta un comando propio tras la recuperación (reconectar un proxy, volver a marcar, etc.)
-- 🌍 **62 idiomas** — sigue automáticamente al sistema y también se puede elegir a mano en el menú
-- 🪶 **Cero dependencias** — una sola app: sin demonios instalados y sin Homebrew
+- 🛠 **Enganches de comandos en dos fases** — unos comandos se ejecutan **en cuanto se detecta el corte** (p. ej. abrir el panel de Red y ver la reparación en directo) y otros **tras la recuperación** (reconectar un proxy, volver a marcar, etc.)
+- 🔔 **Notificaciones solo con buenas noticias** — recibes exactamente una notificación, cuando el adaptador vuelve *y* se ha comprobado que Internet funciona de verdad (con el tiempo empleado); reparación en curso, sin Internet y fallo se expresan solo en el icono de la barra de menús (giro / `✓8s` / `⚠︎` / `✕`)
+- 🌍 **62 idiomas** — interfaz y registros totalmente localizados; sigue automáticamente al sistema y también se puede elegir a mano en el menú
+- 🪶 **Cero dependencias** — una sola app: sin demonios instalados, sin Homebrew y sin ninguna elevación de privilegios
 
 ## Instalación
 
@@ -164,7 +166,7 @@ Si algo falla, pulsa antes que nada **Ejecutar diagnóstico** en el menú: revis
 ## Uso
 
 1. Al arrancar aparece un icono de señal en la barra de menús
-2. Abre el menú → **Elegir objetivo a curar…** → selecciona tu adaptador (los marcados con `· USB` admiten desenchufado por software)
+2. Abre el menú → **Elegir objetivo a curar…** → marca tu adaptador — **puedes marcar varios** (los marcados con `· USB` admiten desenchufado por software)
 3. Listo. A partir de ahí, cierra la tapa y ábrela: si se corta, se arregla solo
 
 Resto de opciones del menú:
@@ -175,7 +177,7 @@ Resto de opciones del menú:
 | Ver registro | Abre `~/.lte-wake.log` |
 | Arranque automático | Interruptor, modificable en cualquier momento (también si instalaste desde el DMG) |
 | Ejecutar diagnóstico | Autocomprobación punto por punto con su solución |
-| Comando tras la recuperación… | Enganche opcional: ejecuta un comando de shell cuando el adaptador se recupera (si lo dejas vacío no hace nada) |
+| Comando tras la recuperación… | Enganches en dos fases: «al detectar el corte» (p. ej. abrir el panel de Red para ver la reparación) y «tras la recuperación» (p. ej. reconectar un proxy) — un comando por línea, ejecutados en orden, más opciones habituales que basta con marcar |
 | Restablecer dispositivo USB | Lista todos los dispositivos USB y les aplica un desenchufado por software con un clic: vale igual para interfaces de audio, cámaras, discos y docks |
 | Icono en la barra de menús | Mostrar siempre / Mostrar solo ante anomalías / Ocultar (**si lo ocultas, basta con abrir la app otra vez desde «Aplicaciones» para recuperarlo**) |
 | Abrir carpeta de configuración | Abre en el Finder la configuración, el registro y la carpeta de idiomas |
@@ -222,35 +224,51 @@ author=……
 
 ## Archivo de configuración
 
-`~/.lte-guard.conf` (lo mantiene la app automáticamente, pero también puedes editarlo a mano):
+`~/.lte-guard.conf` (lo mantiene la app automáticamente, pero también puedes editarlo a mano; las configuraciones antiguas de un solo objetivo se actualizan solas):
 
 ```sh
-DEV="en2"              # interfaz de red
-SERVICE="My LTE"       # nombre del servicio de red (para reiniciarlo en dispositivos no USB)
-USB_VID="2c7c"         # ID de fabricante USB; si lo dejas vacío se reinicia el servicio en su lugar
-USB_PID="0125"         # ID de producto USB
-POST_CMD=''            # comando a ejecutar tras la recuperación, p. ej. reiniciar el proceso del proxy
+# un objetivo a curar por línea, campos separados por tabuladores: interfaz, nombre del servicio, USB_VID, USB_PID
+TARGETS='en2	My LTE	2c7c	0125'
+PRE_CMD=''             # se ejecuta en cuanto se detecta el corte (la red está caída en ese instante: no cuentes con ella)
+POST_CMD=''            # se ejecuta tras la recuperación, p. ej. reiniciar un proxy
 ```
 
-Ejemplo de `POST_CMD`: reiniciar tras la recuperación un proxy gost enlazado a ese adaptador:
+**Ambos enganches admiten varios comandos**: uno por línea, ejecutados en orden. `PRE_CMD` se dispara **en el mismo instante** de la detección: pon ahí la apertura del panel de Red y aparecerá justo a tiempo para ver la reparación entera.
+
+El diálogo ofrece casillas en dos grupos: marcar una escribe al momento en el cuadro de texto correspondiente, y desmarcarla lo quita:
+
+**Habituales** (siempre disponibles)
+
+- Abrir Ajustes del Sistema → Red (va al cuadro del corte) — mira con tus propios ojos cómo vuelve la conexión caída
+- Reproducir un sonido
+- Enviar una notificación por webhook (sustituye la URL de ejemplo por la tuya; útil en máquinas desatendidas)
+
+La notificación de recuperación y la comprobación de Internet vienen **integradas**, no hay nada que marcar: tras la reparación, la app prueba Internet a través de ese mismo adaptador y solo notifica cuando funciona de verdad (con los segundos empleados). Interfaz activa pero sin Internet muestra `⚠︎`; fallo muestra `✕` — solo en el icono, sin dar la lata.
+
+Por ejemplo, abrir el panel de Red al detectar el corte y, tras la recuperación, reiniciar un proxy y reproducir un sonido:
 
 ```sh
-POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte'
+PRE_CMD='open "x-apple.systempreferences:com.apple.Network-Settings.extension"'
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nafplay /System/Library/Sounds/Glass.aiff'
 ```
+
+En el archivo de configuración, los saltos de línea se escriben como `\n` y las comillas simples como `\'` (la app hace el escapado automáticamente; sigue la misma forma si editas a mano).
 
 ## Cómo funciona
 
 ```
-Despertar del sistema (IORegisterForSystemPower)
-      ↓  esperar 5 s a que la interfaz se estabilice
-ping a la puerta de enlace, doble confirmación   → responde → fin
-      ↓ no responde
+Despertar del sistema (IORegisterForSystemPower + NSWorkspace, doble seguro)
+      ↓  ejecutar PRE_CMD de inmediato (p. ej. abrir el panel de Red); esperar 1 s a que el USB tenga corriente
 USBDeviceReEnumerate      → si no es USB, networksetup reinicia el servicio
-      ↓  sondeo hasta obtener IP (máx. 60 s)
-ejecutar POST_CMD → escribir registro → refrescar el icono de la barra de menús
+      ↓  sin comprobaciones previas: quien instala esto ya es víctima del dispositivo zombi
+sondeo cada segundo: solo cuenta como recuperado cuando la puerta de enlace responde al ping (una IP zombi no engaña al ping)
+      ↓  recuperado
+ejecutar POST_CMD → probar Internet a través de ese adaptador → notificar solo si funciona de verdad (con el tiempo empleado)
+      ↓
+el icono lo cuenta todo: giro = reparando, ✓8s = listo, ⚠︎ = sin Internet, ✕ = fallo
 ```
 
-Con un enfriamiento de 90 segundos para evitar oscilaciones repetidas.
+Varios adaptadores se reparan por separado y en paralelo. El enfriamiento de 15 segundos sirve únicamente para absorber las señales de despertar duplicadas de los dos oyentes.
 
 ## Compatibilidad y estado de las pruebas
 

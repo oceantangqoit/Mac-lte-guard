@@ -114,13 +114,15 @@ Sur la communauté officielle Apple, MacRumors et la base de connaissances Pluga
 
 ## La solution
 
-LTE Guard est un gardien qui réside dans la barre des menus : il écoute les événements de réveil du système et vérifie automatiquement l'adaptateur ciblé au retour de veille. Si la passerelle ne répond pas au ping, il effectue via IOKit un **débranchement logiciel (USBDeviceReEnumerate)** sur le périphérique USB concerné, équivalent au geste manuel, ce qui rétablit la connexion **en 8 secondes environ**.
+LTE Guard est un gardien qui réside dans la barre des menus : il écoute les événements de réveil du système et, dès le retour de veille, effectue **immédiatement** via IOKit un **débranchement logiciel (USBDeviceReEnumerate)** sur le périphérique USB ciblé, équivalent au geste manuel. Aucune vérification préalable du genre « faut-il réparer ? » : si vous avez installé cet outil, c'est que vous êtes victime du périphérique zombie, et vérifier ne ferait que perdre du temps. La récupération n'est comptée que lorsque **la passerelle répond réellement au ping**, généralement **en 8 secondes environ** — tout près de la limite physique d'un débranchement à la main.
 
 - 🎯 **Indépendant de la marque** — les VID/PID sont détectés automatiquement une fois l'adaptateur sélectionné, aucune liste de périphériques n'est embarquée
+- 🖇 **Protège plusieurs adaptateurs à la fois** — cochez-en autant que vous voulez ; chacun est détecté et réparé indépendamment, en parallèle
 - 🔌 **Fonctionne aussi hors USB** — bascule automatiquement sur le redémarrage du service réseau
-- 🛠 **Commande complémentaire possible** — une commande personnalisée est exécutée automatiquement après la récupération (reconnexion d'un proxy, nouvelle numérotation, etc.)
-- 🌍 **62 langues** — suit automatiquement la langue du système, et se change aussi manuellement depuis le menu
-- 🪶 **Zéro dépendance** — une seule application, aucun démon à installer, pas besoin de Homebrew
+- 🛠 **Hooks de commandes en deux phases** — un jeu de commandes s'exécute **dès la détection de la coupure** (par exemple ouvrir le panneau Réseau et suivre la réparation en direct), l'autre **après la récupération** (reconnexion d'un proxy, nouvelle numérotation, etc.)
+- 🔔 **Notifications uniquement en cas de succès** — vous recevez exactement une notification, quand l'adaptateur est réparé *et* que l'accès à Internet est réellement vérifié (avec la durée) ; réparation en cours, absence d'Internet et échec ne s'expriment que sur l'icône de la barre des menus (rotation / `✓8s` / `⚠︎` / `✕`)
+- 🌍 **62 langues** — interface et journaux entièrement localisés ; suit automatiquement la langue du système, et se change aussi manuellement depuis le menu
+- 🪶 **Zéro dépendance** — une seule application, aucun démon à installer, pas besoin de Homebrew, aucune élévation de privilèges requise
 
 ## Installation
 
@@ -163,7 +165,7 @@ En cas de souci, commencez par **Lancer le diagnostic** dans le menu : il vérif
 ## Utilisation
 
 1. Une icône de signal apparaît dans la barre des menus après le lancement
-2. Ouvrez le menu → **Choisir la cible à soigner…** → sélectionnez votre adaptateur (les entrées marquées `· USB` acceptent le débranchement logiciel)
+2. Ouvrez le menu → **Choisir la cible à soigner…** → cochez votre adaptateur — **plusieurs sélections possibles** (les entrées marquées `· USB` acceptent le débranchement logiciel)
 3. C'est tout. Ensuite, à chaque fermeture puis réouverture de l'écran, une coupure est réparée automatiquement
 
 Les autres entrées du menu :
@@ -174,7 +176,7 @@ Les autres entrées du menu :
 | Afficher le journal | Ouvre `~/.lte-wake.log` |
 | Lancement au démarrage | Interrupteur modifiable à tout moment (disponible aussi après une installation par DMG) |
 | Lancer le diagnostic | Auto-vérification point par point avec les remèdes correspondants |
-| Commande après récupération… | Hook facultatif : exécute automatiquement une commande shell après la récupération de l'adaptateur (laisser vide pour ne rien faire) |
+| Commande après récupération… | Hooks en deux phases : « à la détection de la coupure » (par exemple ouvrir le panneau Réseau pour suivre la réparation) et « après la récupération » (par exemple reconnecter un proxy) — une commande par ligne, exécutées dans l'ordre, avec en plus des choix courants à cocher |
 | Réinitialiser un périphérique USB | Liste tous les périphériques USB, débranchement logiciel en un clic — également valable pour les interfaces audio, webcams, disques et stations d'accueil |
 | Icône de la barre des menus | Toujours afficher / afficher seulement en cas d'anomalie / masquer (**une fois masquée, rouvrez l'app depuis Applications pour la retrouver**) |
 | Ouvrir le dossier de configuration | Ouvre en un clic la configuration, le journal et le dossier des langues dans le Finder |
@@ -221,35 +223,51 @@ author=……
 
 ## Fichier de configuration
 
-`~/.lte-guard.conf` (maintenu automatiquement par l'app, modifiable à la main) :
+`~/.lte-guard.conf` (maintenu automatiquement par l'app, modifiable à la main ; les anciennes configurations à cible unique sont mises à niveau automatiquement) :
 
 ```sh
-DEV="en2"              # Interface réseau
-SERVICE="My LTE"       # Nom du service réseau (utilisé pour redémarrer le service sur un périphérique non USB)
-USB_VID="2c7c"         # Identifiant de fabricant USB ; laisser vide pour basculer sur le redémarrage du service
-USB_PID="0125"         # Identifiant de produit USB
-POST_CMD=''            # Commande exécutée après la récupération, par exemple le redémarrage d'un proxy
+# une cible à soigner par ligne, champs séparés par des tabulations : interface, nom du service, USB_VID, USB_PID
+TARGETS='en2	My LTE	2c7c	0125'
+PRE_CMD=''             # exécuté dès la détection de la coupure (le réseau est alors indisponible — ne pas compter dessus)
+POST_CMD=''            # exécuté après la récupération, par exemple pour redémarrer un proxy
 ```
 
-Exemple de `POST_CMD` — redémarrer après récupération un proxy gost lié à cet adaptateur :
+**Les deux hooks acceptent plusieurs commandes** — une par ligne, exécutées dans l'ordre. `PRE_CMD` part **à l'instant même** de la détection : mettez-y l'ouverture du panneau Réseau et il apparaît juste à temps pour suivre toute la réparation.
+
+La boîte de dialogue propose des cases à cocher en deux groupes — cocher écrit immédiatement dans la zone de texte correspondante, décocher l'en retire :
+
+**Courantes** (toujours proposées)
+
+- Ouvrir Réglages Système → Réseau (va dans la zone « à la coupure ») — regardez de vos propres yeux la connexion tombée revenir
+- Jouer un son
+- Envoyer une notification webhook (remplacez l'URL d'exemple par la vôtre ; pratique pour les machines sans surveillance)
+
+La notification de récupération et la vérification d'Internet sont **intégrées** — rien à cocher : après la réparation, l'app teste l'accès à Internet à travers cet adaptateur précis, et ne notifie que s'il fonctionne réellement (avec le nombre de secondes écoulées). Interface active mais sans Internet : `⚠︎` ; échec : `✕` — sur l'icône uniquement, sans vous harceler.
+
+Par exemple, ouvrir le panneau Réseau à la coupure, puis redémarrer un proxy et jouer un son après la récupération :
 
 ```sh
-POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte'
+PRE_CMD='open "x-apple.systempreferences:com.apple.Network-Settings.extension"'
+POST_CMD='launchctl kickstart -k gui/$(id -u)/com.user.gost-lte\nafplay /System/Library/Sounds/Glass.aiff'
 ```
+
+Dans le fichier de configuration, les sauts de ligne s'écrivent `\n` et les apostrophes `\'` (l'app fait l'échappement automatiquement ; suivez la même forme si vous éditez à la main).
 
 ## Fonctionnement
 
 ```
-Réveil du système (IORegisterForSystemPower)
-      ↓  attente de 5 s pour laisser l'interface se stabiliser
-ping de la passerelle, double vérification  → répond → fin
-      ↓ ne répond pas
+Réveil du système (IORegisterForSystemPower + NSWorkspace, double sécurité)
+      ↓  exécution immédiate de PRE_CMD (par exemple ouvrir le panneau Réseau) ; attente d'1 s que l'USB soit alimenté
 USBDeviceReEnumerate      → si ce n'est pas de l'USB : redémarrage du service via networksetup
-      ↓  attente par scrutation de l'obtention d'une IP (60 s maximum)
-Exécution de POST_CMD → écriture du journal → mise à jour de l'icône de la barre des menus
+      ↓  aucune vérification préalable — si vous avez installé cet outil, vous êtes victime du périphérique zombie
+scrutation chaque seconde : récupéré seulement quand la passerelle répond au ping (une IP zombie ne trompe pas le ping)
+      ↓  récupéré
+Exécution de POST_CMD → test d'Internet à travers cet adaptateur → notification seulement si ça marche vraiment (avec la durée)
+      ↓
+l'icône raconte tout : rotation = réparation en cours, ✓8s = terminé, ⚠︎ = pas d'Internet, ✕ = échec
 ```
 
-Avec 90 secondes de temporisation, pour éviter les oscillations à répétition.
+Les adaptateurs multiples sont réparés indépendamment, en parallèle. Un délai de refroidissement de 15 secondes sert uniquement à absorber les signaux de réveil en double émis par les deux écouteurs.
 
 ## Compatibilité et état des tests
 
