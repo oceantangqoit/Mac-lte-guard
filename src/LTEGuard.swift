@@ -516,6 +516,9 @@ final class I18n {
     /// 被 BiDi 算法重排后标点跑到错误一侧。
     func t(_ id: Int, _ args: CVarArg...) -> String {
         var s = table[id] ?? "#\(id)"
+        // ini 是单行格式，文案里的换行写作字面 \n——在这里统一还原，
+        // 否则对话框会把 "\n\n" 原样显示出来
+        s = s.replacingOccurrences(of: "\\n", with: "\n")
         let rtl = isRTL
         for (i, a) in args.enumerated() {
             let v = rtl ? I18n.FSI + "\(a)" + I18n.PDI : "\(a)"
@@ -591,15 +594,29 @@ final class Healer {
         }
     }
 
-    /// 不做状态预检：装本工具的人就是假死受害者，唤醒即修。
+    /// 唤醒（wake）：不做状态预检——装本工具的人就是假死受害者，唤醒即修，
     /// 对健康设备多做一次软件拔插无害，预检反而白白拖慢恢复。
+    /// 手动（manual）：「检测并修复」——先逐个检测，全部正常就反馈无需修复；
+    /// 只修异常的，且不受冷却期限制（用户点了就要立即响应）。
     func checkAndHeal(reason: String) {
         q.async {
             let cfg = Config.load()
             let now = Date()
-            let due = cfg.targets.filter { t in
-                !t.dev.isEmpty &&
-                now.timeIntervalSince(self.lastHeal[t.dev] ?? .distantPast) > self.cooldown
+            let due: [Target]
+            if reason == "manual" {
+                let sick = cfg.targets.filter { !$0.dev.isEmpty && !Sys.interfaceHealthy($0.dev) }
+                HealthCache.shared.refresh(cfg.targets.map(\.dev))
+                if sick.isEmpty {
+                    Notifier.post(T(119))
+                    AppDelegate.shared?.flashResult("✓")
+                    return
+                }
+                due = sick
+            } else {
+                due = cfg.targets.filter { t in
+                    !t.dev.isEmpty &&
+                    now.timeIntervalSince(self.lastHeal[t.dev] ?? .distantPast) > self.cooldown
+                }
             }
             guard !due.isEmpty else { return }
             due.forEach { self.lastHeal[$0.dev] = now }
