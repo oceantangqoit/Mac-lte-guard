@@ -29,7 +29,7 @@ LTE Guard is a watchdog that sits in your menu bar and listens for system wake e
 - 🔌 **Works with non-USB adapters too** — falls back to restarting the network service
 - 🌙 **Two sleep policies** — *Keep online* (prevent sleep) or *Normal sleep* (heal on wake)
 - 🛠 **Post-recovery hook** — run your own command after recovery (reconnect a proxy, redial, …)
-- 🌍 **16 languages** — follows your system language, switchable from the menu
+- 🌍 **28 languages** — follows your system language, switchable from the menu
 - 🪶 **Zero dependencies** — a single app; no daemons to install, no Homebrew required
 
 ## Install
@@ -88,7 +88,7 @@ Other menu items:
 | Run diagnostics | Self-check with concrete fixes |
 | Command after recovery… | Optional hook: run a shell command once the adapter is back (empty = do nothing) |
 | Menu bar icon | Always show / only when there is a problem / hidden (**to bring it back, just open the app again from Applications**) |
-| Language | Switch among 16 languages |
+| Language | Switch among 28 languages |
 
 **Optional** — to make *Keep online* work with the lid closed as well, grant passwordless `pmset` once:
 
@@ -98,7 +98,11 @@ echo "$(whoami) ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/p
 
 ## Localization
 
-16 languages ship with the app: Simplified/Traditional Chinese, English, Japanese, Korean, Arabic, Russian, French, German, Italian, Finnish, Spanish (incl. Mexico/Argentina) and Portuguese (incl. Brazil).
+**28 languages** ship with the app, covering the markets with the highest Mac share as well as regions that rely heavily on mobile broadband:
+
+Simplified/Traditional Chinese · Japanese · Korean · Swedish · Norwegian Bokmål · Danish · Finnish · English · German · French · Dutch · Italian · Polish · Czech · Russian · Ukrainian · Spanish (incl. Mexico/Argentina) · Portuguese (incl. Brazil) · Arabic · Hebrew · Turkish · Vietnamese · Indonesian · Thai
+
+> On Switzerland: there is no "Swiss" language — the official languages are German (~62%), French (23%) and Italian (8%), all three of which are already included.
 
 The app follows your system language at startup; you can also switch it from the **Language** menu (the choice is remembered).
 
