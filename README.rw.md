@@ -52,6 +52,31 @@ Amagambo asanzwe ashakishwa mu Cyongereza (iyi porogaramu na yo irabikemura):
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
 
+### Imitwe nyayo y'ibibazo ku mbuga
+
+Tubivuge tutiziganya: gushakisha iki kibazo mu Kinyarwanda ntibitanga ibisubizo — impaka za tekiniki mu Rwanda zikorwa cyane cyane mu Cyongereza cyangwa mu Gifaransa. Imitwe ikurikira yakuwe uko iri kuri Apple Support Communities na MacRumors, ni yo ifite akamaro mu gushakisha:
+
+> `Ethernet USB-C adapter doesn't wake up after sleep` · `Usb ethernet adapter is not working after sleep` · `USB devices aren't working after waking from sleep` · `USB A ports no power after wake up` · `Mac Mini M1 — USB Ports not working after wake from sleep` · `Devices are not detected after waking from sleep or after rebooting on macOS` · `After updating to macOS Tahoe external USB devices disconnect after sleep` · `AX 88179a Ethernet Adapter not recognized`
+
+Mu Gifaransa (gikoreshwa kenshi mu karere):
+
+> `adaptateur USB-C vers Ethernet ne marche plus après la veille` · `disque dur externe non reconnu après veille Mac` · `dock USB-C non reconnu après veille`
+
+### Ukurikije ubwoko bw'igikoresho
+
+| Igikoresho cyawe | Uko abantu bakibisobanura |
+|---|---|
+| Igikoresho cya USB / umugozi w'urusobe | Itara riraka ariko nta murongo, byerekana «ntibihujwe», `en5` iracyahari ariko ping ntinyura |
+| Modem ya LTE / 4G / 5G, cyangwa mudasobwa ya WiFi | Icika iyo ufunze ikanuye, nta murongo nyuma yo gukanguka, isaba gukurwamo no gushyirwamo |
+| Dock (Belkin, Plugable, Anker, CalDigit, OWC) | Nta na kimwe cyometse kuri dock cyemerwa nyuma yo gukanguka |
+| Disiki yo hanze / SSD | Ntiyihagararaho nyuma yo gusinzira, hagaragara «Disiki ntiyakuwemo neza» |
+| Kamera / ikarita yo gufata amashusho / igikoresho cy'amajwi | Bibura ku rutonde rw'ibikoresho nyuma yo gukanguka |
+| Isomero rya karita / dongle / klavier n'imbeba | Ntibisubiza nyuma yo gukanguka, gukuramo no gushyiramo rimwe birabikemura |
+
+### Ibyuma bivugwa cyane muri izo mpaka
+
+> ASIX `AX88179` / `AX88179A` · Realtek `RTL8153` · `RTL8156` 2.5G · Quectel `EC25` · urukurikirane `CM3xx` · Intel `I225-V` (inyuma ya dock za Thunderbolt)
+
 ### Iki kibazo gikunze kugaragara kangahe
 
 Ku rubuga rwa Apple, kuri MacRumors, no muri knowledge base ya Plugable, ibibazo nk'ibi bimaze imyaka myinshi kandi bireba ibikoresho bya Intel n'ibya Apple Silicon:

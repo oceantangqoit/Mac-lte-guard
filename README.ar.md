@@ -52,6 +52,27 @@
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
 
+### عناوين حقيقية من المنتديات
+
+ملاحظة صريحة: البحث بالعربية عن هذه المشكلة لا يعطي نتائج تُذكر — فالنقاش التقني في المنطقة العربية يجري غالبًا بالإنجليزية. العناوين التالية منقولة حرفيًا من منتديات Apple الرسمية وMacRumors، وهي الأجدى للبحث:
+
+> `Ethernet USB-C adapter doesn't wake up after sleep` · `Usb ethernet adapter is not working after sleep` · `USB devices aren't working after waking from sleep` · `USB A ports no power after wake up` · `Mac Mini M1 — USB Ports not working after wake from sleep` · `Devices are not detected after waking from sleep or after rebooting on macOS` · `After updating to macOS Tahoe external USB devices disconnect after sleep` · `AX 88179a Ethernet Adapter not recognized` · `macOS 26 Third Party Ethernet Support`
+
+### حسب نوع الجهاز
+
+| جهازك | كيف يصفه المستخدمون |
+|---|---|
+| محوّل شبكة USB / سلكي | المؤشر مضيء لكن لا بيانات، يظهر «غير متصل»، الواجهة `en5` موجودة لكن ping لا يمر |
+| مودم LTE / 4G / 5G أو راوتر جيب | ينقطع بعد إغلاق الغطاء، لا إنترنت بعد الاستيقاظ، يحتاج فصلًا وإعادة توصيل ليتصل |
+| دوك / محطة إرساء (Belkin، Plugable، Anker، CalDigit، OWC) | لا شيء متصل بالدوك يُتعرَّف عليه بعد الاستيقاظ، يلزم فصل الدوك بالكامل |
+| قرص خارجي / SSD | لا يُركَّب بعد السكون، تظهر رسالة «لم يتم إخراج القرص بشكل صحيح» |
+| كاميرا / بطاقة التقاط / واجهة صوتية | تختفي من قائمة الأجهزة بعد الاستيقاظ، لا يمكن اختيارها في التطبيق |
+| قارئ بطاقات / دنجل / لوحة مفاتيح وفأرة | لا تستجيب بعد الاستيقاظ، يكفي فصلها وإعادة توصيلها مرة واحدة |
+
+### الشرائح الأكثر ذكرًا في تلك النقاشات
+
+> ASIX `AX88179` / `AX88179A` · Realtek `RTL8153` · `RTL8156` بسرعة 2.5G · Quectel `EC25` · سلسلة `CM3xx` · Intel `I225-V` (خلف دوكات Thunderbolt)
+
 ### ما مدى شيوع هذه المشكلة
 
 في مجتمع Apple الرسمي وMacRumors وقاعدة معارف Plugable طلبات مساعدة متشابهة تمتد لسنوات، وتشمل أجهزة Intel وApple Silicon على السواء:
