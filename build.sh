@@ -4,6 +4,7 @@ set -e
 cd "$(dirname "$0")"
 VER="${1:-1.0.0}"
 B=build; rm -rf $B dist; mkdir -p $B dist
+touch $B/.metadata_never_index   # 防止中间产物被 Spotlight 收录
 
 echo "[1/4] 编译 Swift 与 usbreset..."
 swiftc -O -parse-as-library -o $B/LTEGuard src/LTEGuard.swift -framework Cocoa -framework IOKit
@@ -37,5 +38,8 @@ pkgbuild --root $B/pkgroot --scripts packaging/scripts --identifier com.oceantan
          --version "$VER" --install-location / "dist/LTEGuard-$VER.pkg" >/dev/null
 rm -rf $B/dmgroot && mkdir $B/dmgroot && cp -R "$APP" $B/dmgroot/ && ln -s /Applications $B/dmgroot/Applications
 hdiutil create -volname "LTE Guard" -srcfolder $B/dmgroot -ov -format UDZO "dist/LTEGuard-$VER.dmg" >/dev/null
+
+# 清理中间产物（避免 Spotlight 里出现多个同名 App）
+rm -rf $B
 
 echo "完成 → dist/LTEGuard-$VER.pkg  dist/LTEGuard-$VER.dmg"
