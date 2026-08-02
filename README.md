@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Mac 合盖睡眠后 USB 网卡断联？醒来自动修好，不用再拔插。</b><br>
-  <sub>macOS 菜单栏小工具 · Swift 原生 · 零依赖 · MIT</sub>
+  <sub>常驻菜单栏的 USB 网卡守护工具 · Swift 原生 · 零依赖 · MIT</sub>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 ## 方案
 
-LTE Guard 常驻菜单栏，监听系统唤醒事件，醒来后自动检测目标网卡：ping 不通网关就通过 IOKit 对该 USB 设备执行 **软件拔插（USBDeviceReEnumerate）**，等效于手动插拔，通常 **8 秒左右恢复**。
+LTE Guard 是一个常驻在菜单栏里的守护工具，监听系统唤醒事件，醒来后自动检测目标网卡：ping 不通网关就通过 IOKit 对该 USB 设备执行 **软件拔插（USBDeviceReEnumerate）**，等效于手动插拔，通常 **8 秒左右恢复**。
 
 - 🎯 **不挑品牌** — 选中网卡后自动探测 VID/PID，没有内置设备清单
 - 🔌 **非 USB 网卡也能用** — 自动降级为重启网络服务

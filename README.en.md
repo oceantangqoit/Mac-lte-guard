@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Your USB network adapter dies after your Mac sleeps? It heals itself on wake — no more unplugging.</b><br>
-  <sub>macOS menu bar utility · Native Swift · Zero dependencies · MIT</sub>
+  <sub>A USB network adapter watchdog that lives in your menu bar · Native Swift · Zero dependencies · MIT</sub>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@ Why: macOS does not cut USB power during sleep (VBUS is managed by SMC firmware,
 
 ## The fix
 
-LTE Guard lives in your menu bar and listens for system wake events. On wake it checks the target adapter: if the gateway does not respond, it performs a **software replug** on that USB device via IOKit (`USBDeviceReEnumerate`) — equivalent to physically unplugging and reinserting it. **Recovery typically takes about 8 seconds.**
+LTE Guard is a watchdog that sits in your menu bar and listens for system wake events. On wake it checks the target adapter: if the gateway does not respond, it performs a **software replug** on that USB device via IOKit (`USBDeviceReEnumerate`) — equivalent to physically unplugging and reinserting it. **Recovery typically takes about 8 seconds.**
 
 - 🎯 **Vendor-agnostic** — VID/PID are detected when you pick the adapter; there is no built-in device list
 - 🔌 **Works with non-USB adapters too** — falls back to restarting the network service

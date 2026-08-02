@@ -467,6 +467,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let watcher = WakeWatcher()
     private var caffeinate: Process?
     private var keepAwake = false
+    /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
+    private var forceShowUntil: Date?
+    private let forceShowSeconds: TimeInterval = 20
 
     static func main() {
         let app = NSApplication.shared
@@ -487,11 +490,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// 隐藏状态下被用户主动唤起：恢复显示并提示
+    /// 被用户主动唤起：确保图标露面，便于修改设置
+    /// - 隐藏模式：直接恢复为「始终显示」（否则永远没有入口）
+    /// - 仅异常时显示：保留偏好，但临时强制显示一段时间供操作
     private func unhideIfNeeded() {
-        if IconMode.current == .hidden {
+        switch IconMode.current {
+        case .hidden:
             IconMode.current = .always
+            Sys.log("icon: unhidden by user launch")
             notify(T(60))
+        case .problemOnly:
+            forceShowUntil = Date().addingTimeInterval(forceShowSeconds)
+            Sys.log("icon: temporarily shown for \(Int(forceShowSeconds))s (problemOnly)")
+            notify(T(61, Int(forceShowSeconds)))
+            // 窗口结束后自动回到「仅异常时显示」
+            DispatchQueue.main.asyncAfter(deadline: .now() + forceShowSeconds + 0.5) {
+                self.refreshIcon()
+            }
+        case .always:
+            break
         }
         statusItem?.isVisible = true
         refreshIcon()
@@ -515,11 +532,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let cfg = Config.load()
         let healthy = HealthCache.shared.value(for: cfg.dev)
 
-        // 显示模式：隐藏 / 仅异常时显示
-        switch IconMode.current {
-        case .hidden:      statusItem.isVisible = false
-        case .problemOnly: statusItem.isVisible = !healthy || keepAwake
-        case .always:      statusItem.isVisible = true
+        // 显示模式：强制显示窗口 > 隐藏 / 仅异常时显示
+        if let until = forceShowUntil, Date() < until {
+            statusItem.isVisible = true
+        } else {
+            forceShowUntil = nil
+            switch IconMode.current {
+            case .hidden:      statusItem.isVisible = false
+            case .problemOnly: statusItem.isVisible = !healthy || keepAwake
+            case .always:      statusItem.isVisible = true
+            }
         }
         let name = keepAwake ? "bolt.horizontal.circle.fill"
                              : (healthy ? "antenna.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
