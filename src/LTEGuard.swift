@@ -701,6 +701,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             langMenu.addItem(li)
         }
         langMenu.addItem(.separator())
+        let editCur = NSMenuItem(title: T(71), action: #selector(editCurrentLang), keyEquivalent: "")
+        editCur.target = self
+        langMenu.addItem(editCur)
         let openDir = NSMenuItem(title: T(67), action: #selector(openLangFolder), keyEquivalent: "")
         openDir.target = self
         langMenu.addItem(openDir)
@@ -831,6 +834,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func healNow() {
         notify(T(22))
         Healer.shared.checkAndHeal(reason: "manual")
+    }
+
+    /// 编辑当前语言：从 App 内置复制一份到用户目录（同名文件优先级更高），
+    /// 再用默认文本编辑器打开。改完重启 App 即生效，升级也不会被覆盖。
+    @objc func editCurrentLang() {
+        I18n.prepareUserLangDir()
+        let code = I18n.shared.code
+        let fm = FileManager.default
+        let dst = I18n.userLangDir + "/\(code).ini"
+        if !fm.fileExists(atPath: dst), let r = Bundle.main.resourcePath {
+            try? fm.copyItem(atPath: r + "/lang/\(code).ini", toPath: dst)
+        }
+        guard fm.fileExists(atPath: dst) else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir)); return
+        }
+        NSWorkspace.shared.open(URL(fileURLWithPath: dst))
+        notify(T(72, code))
     }
 
     /// 在访达中打开自定义语言目录（自动创建并放入模板）
