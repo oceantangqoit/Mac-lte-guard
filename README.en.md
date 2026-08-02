@@ -331,8 +331,8 @@ A simple rule of thumb: **if unplugging and replugging by hand brings it back, t
 
 ```bash
 launchctl bootout gui/$(id -u)/com.oceantang.lteguard
-rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist ~/Library/Application Support/LTE Guard/lte-guard.conf ~/Library/Application Support/LTE Guard/lte-guard.log
-rm -rf /Applications/LTEGuard.app
+rm -f ~/Library/LaunchAgents/com.oceantang.lteguard.plist
+rm -rf /Applications/LTEGuard.app ~/Library/"Application Support"/"LTE Guard"
 ```
 
 ## Support the project
