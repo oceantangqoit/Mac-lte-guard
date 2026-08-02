@@ -87,7 +87,7 @@ Other menu items:
 | Launch at login | Toggle any time (works for DMG installs too) |
 | Run diagnostics | Self-check with concrete fixes |
 | Command after recovery… | Optional hook: run a shell command once the adapter is back (empty = do nothing) |
-| Menu bar icon | Always show / only when there is a problem / hidden |
+| Menu bar icon | Always show / only when there is a problem / hidden (**to bring it back, just open the app again from Applications**) |
 | Language | Switch among 16 languages |
 
 **Optional** — to make *Keep online* work with the lid closed as well, grant passwordless `pmset` once:

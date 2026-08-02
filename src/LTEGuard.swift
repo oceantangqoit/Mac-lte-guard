@@ -346,6 +346,14 @@ enum LaunchAtLogin {
         return t.contains(Bundle.main.bundlePath)   // 指向当前这份 App 才算已启用
     }
 
+    /// 旧版本写入的 plist 没有 --background 标记，升级后补写一次
+    static func upgradeIfNeeded() {
+        guard isEnabled,
+              let t = try? String(contentsOfFile: plistPath, encoding: .utf8),
+              !t.contains("--background") else { return }
+        set(true)
+    }
+
     static func set(_ on: Bool) {
         let uid = getuid()
         let dir = NSHomeDirectory() + "/Library/LaunchAgents"
@@ -359,7 +367,7 @@ enum LaunchAtLogin {
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0"><dict>
         <key>Label</key><string>\(label)</string>
-        <key>ProgramArguments</key><array><string>\(exe)</string></array>
+        <key>ProgramArguments</key><array><string>\(exe)</string><string>--background</string></array>
         <key>RunAtLoad</key><true/>
         <key>KeepAlive</key><true/>
         </dict></plist>
@@ -473,10 +481,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         caffeinate?.terminate()
     }
 
+    /// 用户在 App 已运行时再次打开它 —— 用于找回被隐藏的图标
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        unhideIfNeeded()
+        return true
+    }
+
+    /// 隐藏状态下被用户主动唤起：恢复显示并提示
+    private func unhideIfNeeded() {
+        if IconMode.current == .hidden {
+            IconMode.current = .always
+            notify(T(60))
+        }
+        statusItem?.isVisible = true
+        refreshIcon()
+    }
+
     func applicationDidFinishLaunching(_ n: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         refreshIcon()
         watcher.start()
+        LaunchAtLogin.upgradeIfNeeded()
+        // 非后台自启（即用户主动打开）时，确保图标可见，避免隐藏后找不回来
+        if !CommandLine.arguments.contains("--background") { unhideIfNeeded() }
         HealthCache.shared.refresh(Config.load().dev)
         if !FileManager.default.fileExists(atPath: Config.path) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.firstRunGuide() }
