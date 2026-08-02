@@ -274,14 +274,32 @@ final class I18n {
         }
     }
 
+    /// 当前语言是否从右向左书写
+    var isRTL: Bool {
+        let base = code.split(separator: "-").first.map(String.init) ?? code
+        return ["ar", "he", "fa", "ur", "ps", "ckb", "yi", "dv"].contains(base)
+    }
+
+    // Unicode 双向算法隔离符（W3C i18n 推荐做法）
+    private static let FSI = "\u{2068}"   // First Strong Isolate
+    private static let PDI = "\u{2069}"   // Pop Directional Isolate
+    static let RLM = "\u{200F}"           // Right-to-Left Mark
+
     /// 取文案：t(21, "Wi-Fi", "USB") -> "已守护 Wi-Fi，方式：USB"
+    /// RTL 语言下，插入值用 FSI/PDI 包裹，避免接口名、VID:PID 等拉丁片段
+    /// 被 BiDi 算法重排后标点跑到错误一侧。
     func t(_ id: Int, _ args: CVarArg...) -> String {
         var s = table[id] ?? "#\(id)"
+        let rtl = isRTL
         for (i, a) in args.enumerated() {
-            s = s.replacingOccurrences(of: "{\(i)}", with: "\(a)")
+            let v = rtl ? I18n.FSI + "\(a)" + I18n.PDI : "\(a)"
+            s = s.replacingOccurrences(of: "{\(i)}", with: v)
         }
         return s
     }
+
+    /// 段落级方向标记：让整段在 RTL 语言下右对齐显示
+    func paragraph(_ s: String) -> String { isRTL ? I18n.RLM + s : s }
 }
 
 func T(_ id: Int, _ args: CVarArg...) -> String {
@@ -601,6 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func buildMenu() {
         let cfg = Config.load()
         let m = NSMenu()
+        m.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
         m.addItem(withTitle: T(1), action: nil, keyEquivalent: "").isEnabled = false
 
         let health = HealthCache.shared.value(for: cfg.dev)
@@ -626,6 +645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 菜单栏图标显示方式
         let iconItem = item(T(48), nil, symbol: "menubar.rectangle")
         let iconMenu = NSMenu()
+        iconMenu.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
         for (mode, title) in [(IconMode.always, T(49)), (.problemOnly, T(50)), (.hidden, T(51))] {
             let mi = NSMenuItem(title: title, action: #selector(setIconMode(_:)), keyEquivalent: "")
             mi.target = self
@@ -640,6 +660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 语言子菜单
         let langItem = item(T(13), nil, symbol: "globe")
         let langMenu = NSMenu()
+        langMenu.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
         for (code, name) in I18n.shared.available {
             let li = NSMenuItem(title: name, action: #selector(switchLang(_:)), keyEquivalent: "")
             li.target = self
@@ -717,9 +738,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var cfg = Config.load()
         let a = NSAlert()
         a.messageText = T(53)
-        a.informativeText = T(54)
+        a.informativeText = I18n.shared.paragraph(T(54))
         let tf = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
         tf.stringValue = cfg.postCmd
+        // 命令本身始终是拉丁文，强制左对齐更易读
+        tf.alignment = .left
+        tf.baseWritingDirection = .leftToRight
         tf.placeholderString = "launchctl kickstart -k gui/$(id -u)/com.example.myproxy"
         a.accessoryView = tf
         a.addButton(withTitle: T(17))
@@ -741,7 +765,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let d = Diagnosis.run()
         let a = NSAlert()
         a.messageText = T(29)
-        a.informativeText = d.lines.joined(separator: "\n")
+        a.informativeText = I18n.shared.paragraph(d.lines.joined(separator: "\n"))
             + (d.problems.isEmpty ? "\n\n✅ " + T(45)
                                   : "\n\n⚠️ " + T(46) + "\n• " + d.problems.joined(separator: "\n• "))
         a.alertStyle = d.problems.isEmpty ? .informational : .warning
@@ -754,7 +778,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func firstRunGuide() {
         let a = NSAlert()
         a.messageText = T(25)
-        a.informativeText = T(26)
+        a.informativeText = I18n.shared.paragraph(T(26))
         a.alertStyle = .informational
         a.addButton(withTitle: T(27))
         a.addButton(withTitle: T(18))
@@ -765,7 +789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let b = NSAlert()
         b.messageText = T(28)
-        b.informativeText = T(47)
+        b.informativeText = I18n.shared.paragraph(T(47))
         b.addButton(withTitle: T(27))
         b.addButton(withTitle: T(18))
         if b.runModal() == .alertFirstButtonReturn { LaunchAtLogin.set(true) }
@@ -813,7 +837,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let a = NSAlert()
         a.messageText = "LTE Guard \(ver)"
-        a.informativeText = "\(T(57))\n\n\(T(64))\n\(T(66))\n\(T(65))\n\n\(T(59))"
+        a.informativeText = I18n.shared.paragraph("\(T(57))\n\n\(T(64))\n\(T(66))\n\(T(65))\n\n\(T(59))")
         a.alertStyle = .informational
         a.addButton(withTitle: T(58))       // 项目主页
         a.addButton(withTitle: T(17))       // 确定

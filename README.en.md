@@ -127,6 +127,16 @@ Other menu items:
 | Open config folder | Reveals the config file, log and language folder in Finder |
 | Language | Switch among 53 languages; the submenu can open the language folder directly |
 
+## Right-to-left languages (RTL)
+
+Four bundled languages are written right to left: **العربية** (Arabic), **עברית** (Hebrew), **فارسی** (Persian) and **اردو** (Urdu).
+
+Because language switching is implemented in-app (reading `lang/*.ini`) rather than through macOS `.lproj` localization, the system never mirrors the interface on its own. Two things are therefore handled explicitly:
+
+1. **Mirrored layout** — menus and submenus are set to `.rightToLeft` for RTL languages: text right-aligned, icons on the right, submenu arrows flipped.
+2. **Bidi isolation** — values interpolated into strings (interface names like `en2`, `2c7c:0125`, service names) are Latin script and digits. Dropped straight into an Arabic sentence, the Unicode bidirectional algorithm reorders them and **colons and parentheses end up on the wrong side**. Every placeholder substitution is therefore wrapped in `U+2068 FSI` / `U+2069 PDI` (the W3C i18n recommendation) so each value becomes its own directional unit.
+3. The *command after recovery* field is forced left-to-right — shell commands are Latin text and read badly right-aligned.
+
 ## Localization
 
 **28 languages** ship with the app, covering the markets with the highest Mac share as well as regions that rely heavily on mobile broadband:
