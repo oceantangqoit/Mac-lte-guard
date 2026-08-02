@@ -44,13 +44,53 @@ Le mécanisme sous-jacent étant identique, le menu de cet outil propose l'entr�
 
 ## Vous arrivez d'un moteur de recherche ?
 
-Les formulations suivantes désignent presque toujours le même problème, et cet outil a été écrit exactement pour cela :
+Les formulations ci-dessous sont celles réellement employées sur les forums francophones. Si vous cherchez à cause de l'une d'entre elles, cet outil a été écrit exactement pour cela.
 
-> Mac réseau ne fonctionne plus après la veille · adaptateur réseau USB déconnecté après fermeture de l'écran · adaptateur externe qu'il faut débrancher et rebrancher · adaptateur USB-C Ethernet inactif après la mise en veille · port réseau du dock non détecté au réveil · clé LTE déconnectée après fermeture du capot · clé 4G sans Internet après le réveil · la LED est allumée mais pas de réseau · l'interface est là mais le ping ne passe pas
+### Comment on en parle sur les forums francophones
 
-Requêtes courantes en anglais (l'outil s'applique de la même façon) :
+> plus de réseau après la veille · l'adaptateur Ethernet USB ne fonctionne plus au réveil · il faut débrancher et rebrancher l'adaptateur · « débrancher/brancher et ça repart » · le voyant est allumé mais pas d'Internet · le lien est vert dans les Réglages Réseau mais plus d'Internet · l'interface est là mais le ping ne passe pas · le voyant ne s'allume pas et l'adaptateur n'apparaît pas dans la liste des préférences réseau · éjection intempestive du disque externe en sortie de veille · disque dur externe éjecté quand le Mac est en veille · le dock USB-C n'est plus reconnu après la fermeture du capot · les ports USB-C ne répondent plus au réveil · clé LTE déconnectée après fermeture de l'écran · adaptateur multiport non reconnu · il faut redémarrer le Mac pour récupérer le réseau
+
+### Titres de discussions réels
+
+Relevés tels quels sur les forums de MacGeneration, la Communauté Apple francophone, MacBidouille et Le Journal du Lapin :
+
+> `Adaptateur USB/Ethernet ne fonctionne plus avec Sierra` · `Problème adaptateur USB-C Ethernet 2.5G` · `Adaptateur USB-C vers Ethernet + recharge (qui pose souci)` · `Problème de connexion USB 10/100/1000 LAN` · `Déconnexion ports USB C intempestive MacBook Pro 2017` · `Les ports USB-C ne fonctionnent plus` · `USB C capricieux sur Mac M1` · `Disque dur externe éjecté quand le Mac est en veille` · `HDDs externes qui s'éjectent lors de leur mise en veille` · `problème de mise en veille DDs externes` · `Problème éjection intempestive disque dur externe` · `Disque externe éjecté après mise en veille du Mac` · `Disque dur externe s'éjecte tout seul du Mac` · `Notification à propos du disque dur en sortie de veille Mac` · `Ejection intempestive de mon disque externe sur mon macbook pro` · `Adaptateur multiports non reconnu sur Mac` · `Mon Mac ne détecte pas mon adaptateur` · `La veille, les adaptateurs USB-C vers Ethernet et macOS`
+
+Trois passages qui résument tout, cités mot pour mot :
+
+> « **La seule solution : Débrancher/brancher ... et ça repart.** »
+> — [Problème adaptateur USB-C Ethernet 2.5G](https://forums.macg.co/threads/probleme-adaptateur-usb-c-ethernet-2-5g.1375193/), forums MacGeneration (adaptateur 2,5 Gbit/s à puce Realtek derrière un dock CalDigit TS3)
+
+> « Tout fonctionne durant un certain temps quand tout à coup, plus rien. **J'ai toujours le lien en vert dans la préférence système mais plus internet** »
+> — même discussion
+
+> « la mise en veille d'un Mac coupe la connexion », et pour récupérer l'Ethernet il faut « **soit débrancher l'adaptateur, soit redémarrer le Mac** »
+> — [La veille, les adaptateurs USB-C vers Ethernet et macOS](https://www.journaldulapin.com/2018/02/17/la-veille-les-adaptateurs-usb-c-vers-ethernet-et-macos/), Le Journal du Lapin (puce Realtek 8153)
+
+### Combinaisons de recherche courantes
+
+En français :
+
+> `adaptateur USB Ethernet ne fonctionne plus après la veille mac` · `macbook plus de réseau après mise en veille` · `débrancher rebrancher adaptateur ethernet mac` · `dock USB-C non reconnu après veille mac` · `disque dur externe éjecté mise en veille mac` · `ports USB ne fonctionnent plus au réveil macbook` · `éjection intempestive disque dur externe mac` · `adaptateur multiport non reconnu mac sortie de veille` · `clé 4G LTE déconnectée après veille mac` · `réinitialiser port USB macOS ligne de commande`
+
+En anglais (l'outil s'applique de la même façon) :
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
+
+### Par type d'appareil
+
+| Votre matériel | Description courante |
+|---|---|
+| Adaptateur Ethernet USB / USB-C | le voyant est allumé mais pas de réseau, « lien vert » dans les Réglages Réseau mais plus d'Internet, l'interface `en5` est toujours là mais le ping ne passe pas, il faut débrancher/rebrancher |
+| Clé LTE / 4G / 5G, modem USB | déconnexion après la fermeture du capot, plus de données au réveil, il faut la retirer et la remettre pour que la connexion reparte |
+| Dock / station d'accueil (Belkin, Plugable, Anker, CalDigit, OWC, Satechi) | au réveil, plus aucun périphérique du dock n'est reconnu, il faut débrancher le dock entier puis le rebrancher |
+| Disque dur externe / SSD | non monté après la veille, message d'éjection incorrecte, « éjection intempestive », il ne réapparaît qu'après un rebranchement |
+| Webcam / carte d'acquisition / interface audio | disparue de la liste des périphériques au réveil, introuvable dans le logiciel |
+| Lecteur de cartes / dongle / clavier-souris | plus aucune réaction au réveil, un débranchement-rebranchement suffit à tout remettre en route |
+
+### Puces les plus souvent citées
+
+> ASIX `AX88179` / `AX88179A` · Realtek `RTL8153` (désignée « Realtek 8153 » par Le Journal du Lapin) · Realtek `RTL8156` en 2,5 Gbit/s · Quectel `EC25` · séries `CM3xx` · Intel `I225-V` (derrière un dock Thunderbolt)
 
 ### À quel point ce problème est-il répandu ?
 

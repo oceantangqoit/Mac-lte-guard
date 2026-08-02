@@ -44,13 +44,54 @@ Como el mecanismo de fondo es idéntico, el menú de esta herramienta incluye **
 
 ## Si has llegado aquí buscando
 
-Todas estas formas de describirlo apuntan casi siempre a lo mismo, y esta herramienta se escribió justo para eso:
+Las formas de describirlo que aparecen abajo son las que se usan realmente en los foros en español. Si has buscado por cualquiera de ellas, esta herramienta se escribió justo para eso.
 
-> el Mac no reconoce el cable de red tras la suspensión · el adaptador de red USB se desconecta al cerrar la tapa · hay que desenchufar y enchufar el adaptador para que vuelva · el adaptador USB-C a Ethernet deja de funcionar tras suspender · el puerto de red del dock no funciona al despertar · el módem LTE se desconecta al cerrar la tapa · el módem 4G no da Internet tras despertar · el LED está encendido pero no hay red · la interfaz existe pero no responde al ping
+### Cómo se pregunta en los foros en español
 
-Búsquedas habituales en inglés (esta herramienta sirve igualmente):
+> el Mac no reconoce el cable de red tras la suspensión · el adaptador Ethernet USB deja de funcionar al despertar · me aparece «sin conexión» · no reacciona y permanece sin conexión · hay que desconectar y volver a conectar el adaptador · hay que desenchufarlo y enchufarlo otra vez para que vuelva · el LED está encendido pero no hay red · la interfaz existe pero no responde al ping · el disco duro externo se desconecta solo cuando el Mac entra en reposo · se expulsa solo el disco al suspender · aviso de «expulsión incorrecta del disco» al despertar · el hub USB-C deja de verse tras cerrar la tapa · los puertos USB-C no responden al salir de la suspensión · el módem LTE se desconecta al cerrar la tapa · accesorios USB desactivados
+
+Nota de vocabulario: en España el ajuste de Apple se llama **reposo** y en Latinoamérica **suspensión**; en los foros conviven «tras suspender», «en reposo», «al despertar» y «al salir de la suspensión» para lo mismo.
+
+### Títulos reales de hilos
+
+Recogidos literalmente de la Comunidad de Apple en español y de medios especializados:
+
+> `Problema hub USB-C ethernet en MacBook Air m2` · `Disco duro externo se desconecta solo y no puedo ver los archivos. MacBook Air` · `Macbook Pro 13" M1, expulsa los discos` · `Se expulsa solo mi disco duro externo` · `Disco Duro Externo Se Desconecta Solo` · `Mi disco externo se desconecta solo` · `Disco duro WD se expulsa sólo` · `Mac no puede ver disco duro externo` · `ACCESORIOS USB DESACTIVADOS` · `No funciona mi 2do puerto USB C` · `no funciona puerto ethernet imac` · `Fallo USB MacBook: bug de Catalina y posible solución` · `USB-C no funciona en Mac: 6 soluciones probadas` · `Qué hacer cuando los puertos USB-C del MacBook no funcionan` · `¿Problemas al Conectar el Adaptador Ethernet en tu Macbook? Posibles Causas y Soluciones`
+
+Citado literalmente del hilo del hub USB-C en la Comunidad de Apple:
+
+> «me aparecía **sin conexión**» … «**no reacciona y permanece sin conexión**»
+> — [Problema hub USB-C ethernet en MacBook Air m2](https://communities.apple.com/es/thread/254858518), Comunidad de Apple
+
+Y el paso que Apple recomienda primero, y que en este caso hay que repetir cada vez:
+
+> «**desconectar y volver a conectar** el dispositivo externo al Mac»
+> — Comunidad de Apple (respuesta estándar de los especialistas)
+
+### Combinaciones de búsqueda habituales
+
+En español:
+
+> `adaptador USB Ethernet no funciona tras suspender mac` · `mac pierde la red al salir de la suspensión` · `desconectar y volver a conectar adaptador ethernet mac` · `dock USB-C no reconocido tras suspensión mac` · `disco duro externo no se monta después de suspender mac` · `se expulsa solo el disco duro externo mac reposo` · `puertos USB no funcionan al despertar macbook` · `módem 4G LTE se desconecta al cerrar la tapa mac` · `reiniciar puerto USB macOS terminal`
+
+En inglés (esta herramienta sirve igualmente):
 
 > `usb ethernet adapter not working after sleep mac` · `macbook ethernet doesn't wake up after sleep` · `usb-c ethernet adapter stops working after lid close` · `mac dock ethernet not detected after wake` · `lte modem disconnects after macbook sleeps` · `have to unplug and replug ethernet adapter macos`
+
+### Por tipo de dispositivo
+
+| Tu equipo | Descripción habitual |
+|---|---|
+| Adaptador Ethernet USB / USB-C | el LED está encendido pero no hay red, aparece «sin conexión», la interfaz `en5` sigue ahí pero el ping no pasa, hay que desconectarlo y volver a conectarlo |
+| Módem LTE / 4G / 5G, pincho USB | se desconecta al cerrar la tapa, sin datos al despertar, hay que sacarlo y volver a ponerlo para que marque otra vez |
+| Dock / base de conexión (Belkin, Plugable, Anker, CalDigit, OWC, Satechi) | al despertar no se reconoce ningún dispositivo del dock, hay que desconectar el dock entero y volver a conectarlo |
+| Disco duro externo / SSD | no se monta tras la suspensión, aviso de «expulsión incorrecta del disco», «se desconecta solo», solo reaparece al volver a enchufarlo |
+| Webcam / capturadora / interfaz de audio | desaparece de la lista de dispositivos al despertar, no se puede seleccionar en el programa |
+| Lector de tarjetas / mochila USB / teclado y ratón | no responde al despertar, basta con desconectar y volver a conectar una vez |
+
+### Chips más citados
+
+> ASIX `AX88179` / `AX88179A` · Realtek `RTL8153` · Realtek `RTL8156` de 2,5 G · Quectel `EC25` · series `CM3xx` · Intel `I225-V` (a través de un dock Thunderbolt)
 
 ### Qué tan extendido está el problema
 
