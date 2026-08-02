@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <b>简体中文</b> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a> · <a href="README.ru.md">Русский</a> · <a href="README.rw.md">Ikinyarwanda</a>
+  <b>简体中文</b> · <a href="README.en.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.es.md">Español</a> · <a href="README.ru.md">Русский</a> · <a href="README.ar.md">العربية</a> · <a href="README.rw.md">Ikinyarwanda</a>
 </p>
 
 ---
@@ -79,7 +79,7 @@ LTE Guard 是一个常驻在菜单栏里的守护工具，监听系统唤醒事�
 - 🎯 **不挑品牌** — 选中网卡后自动探测 VID/PID，没有内置设备清单
 - 🔌 **非 USB 网卡也能用** — 自动降级为重启网络服务
 - 🛠 **可挂后续命令** — 恢复后自动执行自定义命令（重连代理、重新拨号等）
-- 🌍 **53 种语言** — 跟随系统自动切换，菜单里也能手动选
+- 🌍 **62 种语言** — 跟随系统自动切换，菜单里也能手动选
 - 🪶 **零依赖** — 单个 App，不装守护进程、不要 Homebrew
 
 ## 安装
@@ -138,7 +138,7 @@ cd Mac-lte-guard && ./build.sh
 | 重置 USB 设备 | 列出所有 USB 设备，一键软件拔插——音频接口、摄像头、硬盘、扩展坞同样适用 |
 | 菜单栏图标 | 始终显示 / 仅异常时显示 / 隐藏（**隐藏后，从「应用程序」再打开一次 App 即可找回**） |
 | 打开配置文件夹 | 一键在访达中打开配置、日志与语言目录 |
-| 语言 | 53 种语言切换；子菜单内可直接打开语言文件夹 |
+| 语言 | 62 种语言切换；子菜单内可编辑当前语言或打开语言文件夹 |
 
 ## 从右向左的语言（RTL）
 
