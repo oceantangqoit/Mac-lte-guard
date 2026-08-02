@@ -1,0 +1,20 @@
+name: Build & Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install librsvg (for icon)
+        run: brew install librsvg
+      - name: Build
+        run: ./build.sh "${GITHUB_REF_NAME#v}"
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
