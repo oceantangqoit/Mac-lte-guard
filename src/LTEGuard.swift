@@ -407,11 +407,14 @@ final class I18n {
             """
             try? text.write(toFile: sample, atomically: true, encoding: .utf8)
         }
-        // 附带英文与简体中文两份模板，省去用户去 App 包里翻
+        // 附带英文与简体中文两份模板，省去用户去 App 包里翻。
+        // 无条件覆盖：模板不应被用户编辑（应复制改名后翻译），
+        // 覆盖才能保证升级后模板始终与当前版本的键位同步
         if let r = Bundle.main.resourcePath {
             for (src, dst) in [("en", "en"), ("zh-Hans", "zhs")] {
                 let from = r + "/lang/\(src).ini", to = userLangDir + "/\(dst).template.ini"
-                if !fm.fileExists(atPath: to) { try? fm.copyItem(atPath: from, toPath: to) }
+                try? fm.removeItem(atPath: to)
+                try? fm.copyItem(atPath: from, toPath: to)
             }
         }
     }
@@ -1053,6 +1056,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         Sys.log(T(117, ver))
+        I18n.prepareUserLangDir()   // 启动即释放/刷新翻译模板（等效"安装时释放"，且升级后自动同步）
         UNUserNotificationCenter.current().delegate = self
         Notifier.requestAuth()
         refreshIcon()
