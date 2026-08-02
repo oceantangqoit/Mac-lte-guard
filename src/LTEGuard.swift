@@ -23,7 +23,17 @@ struct Config {
             let s = line.trimmingCharacters(in: .whitespaces)
             guard !s.hasPrefix("#"), let eq = s.firstIndex(of: "=") else { continue }
             let key = String(s[s.startIndex..<eq])
-            var val = String(s[s.index(after: eq)...])
+            let raw = String(s[s.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+
+            // POST_CMD 的值里天然含有 "   #lteguard" 标记，绝不能走"剥行尾注释"，
+            // 必须按引号边界+转义规则解析（\' 不是结束，裸 ' 才是）
+            if key == "POST_CMD" {
+                c.postCmd = Config.parseQuoted(raw) ?? Config.unescape(
+                    raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'")))
+                continue
+            }
+
+            var val = raw
             if let hash = val.range(of: "  #") { val = String(val[val.startIndex..<hash.lowerBound]) }
             val = val.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
             switch key {
@@ -31,7 +41,6 @@ struct Config {
             case "SERVICE": c.service = val
             case "USB_VID": c.usbVID = val
             case "USB_PID": c.usbPID = val
-            case "POST_CMD": c.postCmd = Config.unescape(val)
             default: break
             }
         }
@@ -65,6 +74,28 @@ struct Config {
             }
         }
         return out
+    }
+
+    /// 解析单引号包裹、内含转义的值：提取引号内内容并反转义。
+    /// 值内的单引号在写入时被转为 \'，因此扫描中跳过转义对，
+    /// 遇到的第一个裸单引号即值的终点（其后即使有注释也安全忽略）。
+    /// 不是单引号开头则返回 nil（交给兼容回退路径）。
+    static func parseQuoted(_ raw: String) -> String? {
+        guard raw.first == "'" else { return nil }
+        var out = ""
+        var it = raw.dropFirst().makeIterator()
+        while let ch = it.next() {
+            if ch == "'" { return out }
+            guard ch == "\\" else { out.append(ch); continue }
+            switch it.next() {
+            case "n":  out += "\n"
+            case "'":  out += "'"
+            case "\\": out += "\\"
+            case let other?: out.append("\\"); out.append(other)
+            case nil:  out += "\\"
+            }
+        }
+        return out   // 未见闭引号：容错，返回已解析部分
     }
 
     /// 读取配置时反转义（与 escape 严格成对）
