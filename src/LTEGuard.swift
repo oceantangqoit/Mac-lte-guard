@@ -200,22 +200,36 @@ final class I18n {
         let sample = userLangDir + "/README.txt"
         if !fm.fileExists(atPath: sample) {
             let text = """
+            把你自己的 <语言代码>.ini 放在这个文件夹里（例如 nl.ini、sr.ini）。
+
+            最简单的做法：把这里的 zhs.template.ini（简体中文）或 en.template.ini
+            （英文）复制一份，改名为目标语言代码，然后翻译每行等号右边的文字。
+            重启 LTE Guard 后就会出现在「语言」菜单里。
+
+            同名文件会覆盖 App 内置的版本。
+            欢迎把翻译提交到项目，让更多人用上：
+            https://github.com/oceantangqoit/Mac-lte-guard
+
+            ---
+
             Put your own <language>.ini files here (e.g. nl.ini, sr.ini).
 
-            The easiest way: copy the bundled English file below into this folder,
-            rename it to your language code, and translate the right-hand side of
-            each numbered line. Restart LTE Guard and it appears in the Language menu.
+            Easiest way: copy zhs.template.ini (Simplified Chinese) or
+            en.template.ini here, rename it to your language code, and translate
+            the right-hand side of each numbered line. Restart LTE Guard and it
+            appears in the Language menu.
 
             A file here overrides a bundled one with the same name.
-            Pull requests with translations are very welcome:
-            https://github.com/oceantangqoit/Mac-lte-guard
+            Translation pull requests are very welcome.
             """
             try? text.write(toFile: sample, atomically: true, encoding: .utf8)
         }
-        // 附带一份英文模板，省去用户去 App 包里翻
+        // 附带英文与简体中文两份模板，省去用户去 App 包里翻
         if let r = Bundle.main.resourcePath {
-            let src = r + "/lang/en.ini", dst = userLangDir + "/en.template.ini"
-            if !fm.fileExists(atPath: dst) { try? fm.copyItem(atPath: src, toPath: dst) }
+            for (src, dst) in [("en", "en"), ("zh-Hans", "zhs")] {
+                let from = r + "/lang/\(src).ini", to = userLangDir + "/\(dst).template.ini"
+                if !fm.fileExists(atPath: to) { try? fm.copyItem(atPath: from, toPath: to) }
+            }
         }
     }
 
