@@ -1202,11 +1202,14 @@ enum LaunchAtLogin {
         return t.contains(Bundle.main.bundlePath)   // 指向当前这份 App 才算已启用
     }
 
-    /// 旧版本写入的 plist 没有 --background 标记，升级后补写一次
+    /// 旧版本写入的 plist 需要升级时补写一次：
+    /// · 缺 --background 标记（早期版本）
+    /// · KeepAlive 为无条件 true（会把用户的主动退出立刻拉活，导致"退出要退两次"）
     static func upgradeIfNeeded() {
         guard isEnabled,
               let t = try? String(contentsOfFile: plistPath, encoding: .utf8),
-              !t.contains("--background") else { return }
+              !t.contains("--background") || t.contains("<key>KeepAlive</key><true/>")
+        else { return }
         set(true)
     }
 
@@ -1225,7 +1228,7 @@ enum LaunchAtLogin {
         <key>Label</key><string>\(label)</string>
         <key>ProgramArguments</key><array><string>\(exe)</string><string>--background</string></array>
         <key>RunAtLoad</key><true/>
-        <key>KeepAlive</key><true/>
+        <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
         </dict></plist>
         """
         try? plist.write(toFile: plistPath, atomically: true, encoding: .utf8)
