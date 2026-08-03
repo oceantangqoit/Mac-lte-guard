@@ -256,6 +256,8 @@ Ibikoresho byinshi bisanwa buri kimwe ukwacyo, byose icyarimwe. Ikiruhuko cy'ama
 
 ## Guhuza n'ibikoresho n'ibyagerageje
 
+**Ibisabwa: macOS 10.15 Catalina cyangwa nshya kuyirusha, binary rusange (universal binary) ikorera kuri Intel na Apple Silicon** — Mac yose ishobora gukoresha Catalina (amoko yo kuva mu 2012) ishobora gukoresha iki gikoresho. Kuri macOS 11 n'iziyibanjirije, umurongo w'ibikubiyemo werekana inyandiko (LTE) mu mwanya w'ikimenyetso, kandi urupapuro rw'urusobe rufungurwa binyuze mu nzira ya kera ya System Preferences; ibindi byose ni kimwe.
+
 ### Byagerageje kandi birakora
 
 | Ikintu | Aho byagerageje |

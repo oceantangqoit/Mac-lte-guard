@@ -272,6 +272,8 @@ Varios adaptadores se reparan por separado y en paralelo. El enfriamiento de 15 
 
 ## Compatibilidad y estado de las pruebas
 
+**Requisitos: macOS 10.15 Catalina o posterior, binario universal para Intel y Apple Silicon** — cualquier Mac capaz de ejecutar Catalina (modelos de 2012 en adelante) puede ejecutarlo. En macOS 11 y anteriores, la barra de menús muestra una etiqueta de texto (LTE) en lugar del icono de símbolo, y el panel de red se abre por la ruta clásica de Preferencias del Sistema; todo lo demás es idéntico.
+
 ### Verificado en la práctica
 
 | Elemento | Entorno |

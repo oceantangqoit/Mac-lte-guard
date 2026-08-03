@@ -279,6 +279,8 @@ Mehrere Adapter werden unabhängig voneinander und parallel repariert. Die Abkü
 
 ## Kompatibilität und Teststand
 
+**Voraussetzungen: macOS 10.15 Catalina oder neuer, Universal Binary für Intel und Apple Silicon** – jeder Mac, auf dem Catalina läuft (Modelle ab 2012), kann dieses Tool ausführen. Unter macOS 11 und früher zeigt die Menüleiste statt des Symbol-Icons eine Textbeschriftung (LTE), und der Netzwerkbereich öffnet sich über den klassischen Weg der Systemeinstellungen; alles andere ist identisch.
+
 ### In der Praxis verifiziert
 
 | Punkt | Umgebung |

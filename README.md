@@ -309,6 +309,8 @@ USBDeviceReEnumerate       → 非 USB 则 networksetup 重启服务
 
 ## 兼容性与测试情况
 
+**系统要求：macOS 10.15 Catalina 及以上，Intel 与 Apple Silicon 通用二进制**——2012 年以来能装 Catalina 的 Mac 都能跑。在 macOS 11 及更早的系统上，菜单栏用文字（LTE）代替符号图标，网络面板走旧版设置路径，其余功能一致。
+
 ### 已实测有效
 
 | 项目 | 环境 |

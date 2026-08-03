@@ -271,6 +271,8 @@ Les adaptateurs multiples sont réparés indépendamment, en parallèle. Un dél
 
 ## Compatibilité et état des tests
 
+**Prérequis : macOS 10.15 Catalina ou ultérieur, binaire universel pour Intel et Apple Silicon** — tout Mac capable de faire tourner Catalina (modèles à partir de 2012) peut l'exécuter. Sous macOS 11 et antérieur, la barre de menus affiche une étiquette texte (LTE) au lieu de l'icône symbole, et le panneau réseau s'ouvre par l'ancien chemin des Préférences Système ; tout le reste est identique.
+
 ### Vérifié en conditions réelles
 
 | Élément | Environnement |

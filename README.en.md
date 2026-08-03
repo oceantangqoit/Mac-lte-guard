@@ -282,6 +282,8 @@ An early version shipped that toggle. It was removed after testing showed it sim
 
 ## Compatibility and testing
 
+**Requirements: macOS 10.15 Catalina or later, universal binary for Intel and Apple Silicon** — any Mac that can run Catalina (2012 onwards) can run this. On macOS 11 and earlier the menu bar falls back to a text label (LTE) instead of the symbol icon and the network pane opens via the legacy System Preferences path; everything else is identical.
+
 ### Verified working
 
 | Item | Environment |

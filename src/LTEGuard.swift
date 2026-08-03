@@ -194,9 +194,10 @@ struct Config {
         for raw in postCmd.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             guard line.hasSuffix("#lteguard") else { post.append(raw); continue }
-            if line.contains("Network.prefPane") {
-                let entry = "open \"x-apple.systempreferences:com.apple.Network-Settings.extension\"   #lteguard"
-                if !preCmd.contains("Network-Settings") {
+            if Sys.isNetworkPaneCmd(line) {
+                let entry = "\(Sys.openNetworkPaneCmd)   #lteguard"
+                let already = preCmd.split(separator: "\n").contains { Sys.isNetworkPaneCmd(String($0)) }
+                if !already {
                     preCmd = preCmd.isEmpty ? entry : preCmd + "\n" + entry
                 }
                 changed = true
@@ -217,7 +218,7 @@ enum Sys {
     @discardableResult
     static func run(_ cmd: String, wait: Bool = true) -> String {
         let p = Process()
-        p.launchPath = "/bin/sh"
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", cmd]
         let pipe = Pipe()
         p.standardOutput = pipe
@@ -230,6 +231,36 @@ enum Sys {
     }
 
     static var logPath: String { I18n.appSupportDir + "/lte-guard.log" }
+
+    /// IOKit 默认端口。kIOMainPortDefault（12+）与 kIOMasterPortDefault（已废弃）
+    /// 的值都是 0，用命名常量同时兼容新旧系统
+    static let ioDefaultPort: mach_port_t = 0
+
+    /// 打开「系统设置 → 网络」——macOS 13 起是 x-apple URL，
+    /// 更早的系统只认 prefPane 路径（在 13+ 上反而会落到 Wi-Fi 页）
+    static var openNetworkPaneCmd: String {
+        if #available(macOS 13.0, *) {
+            return "open \"x-apple.systempreferences:com.apple.Network-Settings.extension\""
+        }
+        return "open -b com.apple.systempreferences /System/Library/PreferencePanes/Network.prefPane"
+    }
+
+    /// 该行是否为「打开网络面板」命令（任一历史变体）。
+    /// 迁移去重、执行时替换共用这一份判定，新增变体只改这里
+    static func isNetworkPaneCmd(_ line: String) -> Bool {
+        line.contains("Network-Settings.extension") || line.contains("Network.prefPane")
+    }
+
+    /// 执行用户配置的命令前逐行解析：配置里可能存着在其他系统版本上写入的
+    /// 网络面板命令变体（配置会跟着系统升级走），执行时刻替换为当前系统的
+    /// 正确形式——版本分支挂在执行层，持久化的字符串形态就无所谓了
+    static func resolveUserCmds(_ text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> String in
+                isNetworkPaneCmd(String(line)) ? openNetworkPaneCmd : String(line)
+            }
+            .joined(separator: "\n")
+    }
 
     /// 一次性迁移：配置与日志的真身从家目录隐藏文件搬到标准
     /// Application Support 目录（此前那里只放替身）。历史日志保留。
@@ -290,7 +321,7 @@ enum Sys {
     /// 枚举所有已连接的 USB 设备 -> [(vid, pid, 显示名)]
     static func usbDevices() -> [(String, String, String)] {
         var iter: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(kIOMainPortDefault,
+        guard IOServiceGetMatchingServices(Sys.ioDefaultPort,
                 IOServiceMatching(kIOUSBDeviceClassName), &iter) == KERN_SUCCESS else { return [] }
         defer { IOObjectRelease(iter) }
         var out: [(String, String, String)] = []
@@ -312,7 +343,7 @@ enum Sys {
     static func usbIDs(for bsd: String) -> (String, String)? {
         guard let match = IOServiceMatching("IONetworkInterface") as NSMutableDictionary? else { return nil }
         match["BSD Name"] = bsd
-        let svc = IOServiceGetMatchingService(kIOMainPortDefault, match as CFDictionary)
+        let svc = IOServiceGetMatchingService(Sys.ioDefaultPort, match as CFDictionary)
         guard svc != 0 else { return nil }
         var cur = svc
         for _ in 0..<12 {
@@ -624,7 +655,7 @@ final class Healer {
 
             // ── 「断联时命令」第一时间抢跑（如打开网络面板——它冷启动要 2-4 秒，
             //    必须赶在拔插前开跑，用户才能看到从断联到恢复的全过程）──
-            if !cfg.preCmd.isEmpty { Sys.run(cfg.preCmd, wait: false) }
+            if !cfg.preCmd.isEmpty { Sys.run(Sys.resolveUserCmds(cfg.preCmd), wait: false) }
             // USB 子系统上电就绪缓冲（原唤醒延迟挪到这里，不再拖累 preCmd）
             Thread.sleep(forTimeInterval: 1)
 
@@ -639,7 +670,7 @@ final class Healer {
                 }
             }
             group.notify(queue: self.q) {
-                if anyOK && !cfg.postCmd.isEmpty { Sys.run(cfg.postCmd) }
+                if anyOK && !cfg.postCmd.isEmpty { Sys.run(Sys.resolveUserCmds(cfg.postCmd)) }
             }
         }
     }
@@ -1045,7 +1076,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
+        if #available(macOS 11.0, *) {
+            completionHandler([.banner, .list, .sound])
+        } else {
+            completionHandler([.alert, .sound])   // 10.15：.banner/.list 尚不存在
+        }
     }
 
     /// 修复结果短暂显示在图标旁（✓8s / ⚠︎ / ✕），10 秒后复原。
@@ -1085,7 +1120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .always:
             break
         }
-        statusItem?.isVisible = true
+        // 可见性交给 refreshIcon 经 setIconVisible 防抖通道统一处理，不再裸写
         refreshIcon()
     }
 
@@ -1118,32 +1153,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// SF Symbols 仅 macOS 11+ 提供；10.15 返回 nil，调用方走文字/无图标回退
+    static func symbolImage(_ name: String, description: String? = nil) -> NSImage? {
+        guard #available(macOS 11.0, *) else { return nil }
+        let img = NSImage(systemSymbolName: name, accessibilityDescription: description)
+        img?.isTemplate = true
+        return img
+    }
+
+    /// 只在值变化时才写 isVisible——macOS 26 Tahoe 已知高频翻转会触发
+    /// 与 ControlCenter 的 visibility 死循环（BetterDisplay/Stats 均中招）
+    private func setIconVisible(_ v: Bool) {
+        if statusItem.isVisible != v { statusItem.isVisible = v }
+    }
+
     func refreshIcon() {
         guard let btn = statusItem.button else { return }
         let cfg = Config.load()
         let healthy = HealthCache.shared.value(for: cfg.targets.map(\.dev))
+        let healing = Healer.shared.healing
 
-        // 显示模式：强制显示窗口 > 隐藏 / 仅异常时显示
-        if let until = forceShowUntil, Date() < until {
-            statusItem.isVisible = true
+        // 显示模式：修复中永远露面 > 强制显示窗口 > 隐藏 / 仅异常时显示
+        if healing {
+            setIconVisible(true)
+        } else if let until = forceShowUntil, Date() < until {
+            setIconVisible(true)
         } else {
             forceShowUntil = nil
             switch IconMode.current {
-            case .hidden:      statusItem.isVisible = false
-            case .problemOnly: statusItem.isVisible = !healthy
-            case .always:      statusItem.isVisible = true
+            case .hidden:      setIconVisible(false)
+            case .problemOnly: setIconVisible(!healthy)
+            case .always:      setIconVisible(true)
             }
         }
-        let healing = Healer.shared.healing
-        if healing { statusItem.isVisible = true }   // 修复中永远露面，让用户看到过程
         let name = healing ? "arrow.triangle.2.circlepath"
                  : healthy ? "antenna.radiowaves.left.and.right"
                            : "antenna.radiowaves.left.and.right.slash"
-        var img = NSImage(systemSymbolName: name, accessibilityDescription: "LTE Guard")
+        var img = AppDelegate.symbolImage(name, description: "LTE Guard")
         if img == nil {   // 旧系统缺该符号时回退
-            img = NSImage(systemSymbolName: healthy ? "wifi" : "wifi.slash", accessibilityDescription: "LTE Guard")
+            img = AppDelegate.symbolImage(healthy ? "wifi" : "wifi.slash", description: "LTE Guard")
         }
-        img?.isTemplate = true
         let flashing = flashUntil.map { Date() < $0 } ?? false
         if !flashing { flashUntil = nil }
         if let img = img { btn.image = img; if !flashing { btn.title = "" } }
@@ -1157,11 +1206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         it.target = self
         it.state = state
         it.isEnabled = enabled
-        if let s = symbol {
-            let im = NSImage(systemSymbolName: s, accessibilityDescription: nil)
-            im?.isTemplate = true
-            it.image = im
-        }
+        if let s = symbol { it.image = AppDelegate.symbolImage(s) }
         return it
     }
 
@@ -1185,8 +1230,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             row.isEnabled = false
             m.addItem(row)
         }
-        m.addItem(.separator())
-
         m.addItem(.separator())
         m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
         m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
@@ -1395,7 +1438,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let editor = PostCmdEditor(preTV: preTV, postTV: postTV)
         self.postCmdEditor = editor   // 持有，否则 target/delegate（弱引用）会被立即释放，勾选与文本回调全部失效
 
-        // ── 勾选区（可滚动）──
+        // ── 勾选区（可滚动）。顶部一条发丝线，让"手写命令区/勾选预设区"的
+        //    结构一眼可辨——无形细节的堆叠决定了整体质感 ──
+        let rule = NSBox(frame: NSRect(x: 0, y: 220, width: W, height: 1))
+        rule.boxType = .separator
+        container.addSubview(rule)
         let listScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 218))
         listScroll.hasVerticalScroller = true
         listScroll.borderType = .noBorder
@@ -1407,8 +1454,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 「提示恢复」「验证能否上网」已内建为原生通知，不再作为 shell 预设。
         let common: [PresetCmd] = [
             PresetCmd(title: T(80),
-                      command: "open \"x-apple.systempreferences:com.apple.Network-Settings.extension\"",
-                      hint: "Network-Settings", pre: true),
+                      command: Sys.openNetworkPaneCmd,
+                      hint: "systempreferences", pre: true),
             PresetCmd(title: T(83), command: "afplay /System/Library/Sounds/Glass.aiff",
                       hint: "afplay"),
             PresetCmd(title: T(92),

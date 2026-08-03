@@ -6,9 +6,20 @@ VER="${1:-1.0.0}"
 B=build; rm -rf $B dist; mkdir -p $B dist
 touch $B/.metadata_never_index   # 防止中间产物被 Spotlight 收录
 
-echo "[1/4] 编译 Swift 与 usbreset..."
-swiftc -O -parse-as-library -o $B/LTEGuard src/LTEGuard.swift -framework Cocoa -framework IOKit
-clang -o $B/usbreset src/usbreset.c -framework IOKit -framework CoreFoundation
+echo "[1/4] 编译 Swift 与 usbreset（通用二进制 arm64+x86_64，最低 macOS 10.15）..."
+MACOS_MIN="10.15"
+# 三个编译互相独立，并行跑；lipo 只等两个 swiftc（wait $pid 保留失败退出码）
+SWIFT_FLAGS="-O -parse-as-library"
+swiftc $SWIFT_FLAGS -target arm64-apple-macos$MACOS_MIN \
+  -o $B/LTEGuard.arm64 src/LTEGuard.swift -framework Cocoa -framework IOKit & P_ARM=$!
+swiftc $SWIFT_FLAGS -target x86_64-apple-macos$MACOS_MIN \
+  -o $B/LTEGuard.x86_64 src/LTEGuard.swift -framework Cocoa -framework IOKit & P_X86=$!
+clang -arch arm64 -arch x86_64 -mmacosx-version-min=$MACOS_MIN \
+  -o $B/usbreset src/usbreset.c -framework IOKit -framework CoreFoundation & P_CLANG=$!
+wait $P_ARM; wait $P_X86
+lipo -create -output $B/LTEGuard $B/LTEGuard.arm64 $B/LTEGuard.x86_64
+rm $B/LTEGuard.arm64 $B/LTEGuard.x86_64
+wait $P_CLANG
 
 echo "[2/4] 生成图标..."
 rm -rf $B/icon.iconset; mkdir -p $B/icon.iconset
