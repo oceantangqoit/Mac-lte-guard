@@ -113,19 +113,22 @@ enum WebhookSender {
                 Sys.log(T(152))
             } else {
                 Sys.log(T(153, err?.localizedDescription ?? "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)"))
-                if queueOnFail {
-                    let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-                    let line = "\(f.string(from: Date()))\t\(text.replacingOccurrences(of: "\n", with: " "))\n"
-                    if let h = FileHandle(forWritingAtPath: outboxPath) {
-                        h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); h.closeFile()
-                    } else {
-                        try? line.write(toFile: outboxPath, atomically: true, encoding: .utf8)
-                    }
-                }
+                if queueOnFail { enqueue(text) }
             }
             sem?.signal()
         }.resume()
         _ = sem?.wait(timeout: .now() + 3.5)
+    }
+
+    /// 写入待补队列（时间\t消息），供网络恢复后补发
+    static func enqueue(_ text: String) {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let line = "\(f.string(from: Date()))\t\(text.replacingOccurrences(of: "\n", with: " "))\n"
+        if let h = FileHandle(forWritingAtPath: outboxPath) {
+            h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); h.closeFile()
+        } else {
+            try? line.write(toFile: outboxPath, atomically: true, encoding: .utf8)
+        }
     }
 
     /// 网络恢复后补发队列中的消息，逐条注明原发送时间；仍失败的保留待下次
@@ -231,15 +234,31 @@ enum CameraSnap {
     }
 
     /// 拍一张存进门卫室，文件名 = 时间戳_标签.jpg。完成回调带路径（失败为 nil）
+    /// 屏幕锁定中？（锁屏时系统挂起后台相机管线，硬拍只会无声失败）
+    static var screenLocked: Bool {
+        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+    }
+
+    /// 锁屏期间欠下的拍照（解锁瞬间统一补拍一张 unlock）
+    static var pendingUnlockSnap = false
+
     static func take(tag: String, completion: @escaping (String?) -> Void) {
         guard authorized else { completion(nil); return }
+        // 锁屏中拍不了（系统隐私保护）：登记欠账，解锁瞬间补拍——
+        // 拍到的正是解锁操作者，门卫室语义更准
+        if screenLocked && tag != "unlock" {
+            pendingUnlockSnap = true
+            Sys.log(T(154))
+            completion(nil)
+            return
+        }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
         let session = AVCaptureSession()
         session.sessionPreset = .photo
         guard let cam = AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: cam),
-              session.canAddInput(input) else { completion(nil); return }
+              session.canAddInput(input) else { Sys.log(T(155, tag)); completion(nil); return }
         session.addInput(input)
         let output = AVCapturePhotoOutput()
         guard session.canAddOutput(output) else { completion(nil); return }
@@ -257,6 +276,7 @@ enum CameraSnap {
                     Sys.log(T(127, path))
                     completion(path)
                 } else {
+                    Sys.log(T(155, tag))   // 失败不再静默——没有照片必须有解释
                     completion(nil)
                 }
             }
@@ -555,19 +575,33 @@ enum Sys {
     /// 执行用户命令：含 --snap 的行走 App 进程内拍照（快，不起第二实例），
     /// 其余合并交给 shell。用户手写的 $(… --snap) 组合行含命令替换符，
     /// 不拆——整行交 shell 由 CLI 模式接住
-    static func runUserCmds(_ text: String, wait: Bool, prefix: String = "") {
+    @discardableResult
+    static func runUserCmds(_ text: String, wait: Bool, prefix: String = "") -> String {
         var shellLines: [String] = []
+        var snapTags: [String] = []
         for raw in resolveUserCmds(text).split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.contains("--snap") && !t.contains("$(") {
-                let tag = t.contains("restored") ? "restored" : (t.contains("wake") ? "wake" : "snap")
-                DispatchQueue.main.async { CameraSnap.take(tag: tag) { _ in } }
+                snapTags.append(t.contains("restored") ? "restored" : (t.contains("wake") ? "wake" : "snap"))
             } else if !t.isEmpty {
                 shellLines.append(line)
             }
         }
-        if !shellLines.isEmpty { run(prefix + shellLines.joined(separator: "\n"), wait: wait) }
+        for tag in snapTags {
+            if wait {
+                // 等照片落盘再跑 shell——图文 webhook 取"最新一张"，
+                // 异步拍会让它抓到上一次的旧照
+                let sem = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { CameraSnap.take(tag: tag) { _ in sem.signal() } }
+                _ = sem.wait(timeout: .now() + 3.5)
+            } else {
+                // 断联阶段：拍照与打开网络面板并行，互不拖累
+                DispatchQueue.main.async { CameraSnap.take(tag: tag) { _ in } }
+            }
+        }
+        guard !shellLines.isEmpty else { return "" }
+        return run(prefix + shellLines.joined(separator: "\n"), wait: wait)
     }
 
     /// 一次性迁移：配置与日志的真身从家目录隐藏文件搬到标准
@@ -1000,7 +1034,14 @@ final class Healer {
                         .replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "$", with: "")
                         .replacingOccurrences(of: "`", with: "")
                     if !cfg.postCmd.isEmpty {
-                        Sys.runUserCmds(cfg.postCmd, wait: true, prefix: "LTE_INFO=\"\(info)\"; ")
+                        let out = Sys.runUserCmds(cfg.postCmd, wait: true, prefix: "LTE_INFO=\"\(info)\"; ")
+                        // shell webhook 的成败也进日志；失败把详尽文本入待补队列
+                        if out.contains("__WH_FAIL__") {
+                            Sys.log(T(153, "HTTP"))
+                            WebhookSender.enqueue("LTE Guard: \(info)")
+                        } else if out.contains("__WH_OK__") {
+                            Sys.log(T(152))
+                        }
                     }
                     WebhookSender.flushOutbox()   // 网络已恢复：补发滞留消息
                 }
@@ -1587,6 +1628,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forName: NSWorkspace.didWakeNotification, object: nil, queue: nil) { _ in
             DispatchQueue.global().async {
                 Healer.shared.checkAndHeal(reason: "wake")
+            }
+        }
+        // 解锁瞬间补拍：锁屏期间欠下的照片在这里补（拍到的就是解锁者），
+        // 若配置了图文 webhook，再把这张单独补推出去
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in
+            guard CameraSnap.pendingUnlockSnap else { return }
+            CameraSnap.pendingUnlockSnap = false
+            CameraSnap.take(tag: "unlock") { path in
+                guard let path = path else { return }
+                let (p, u, rich) = AppDelegate.parseWebhook(from: Config.load().postCmd)
+                guard rich, !u.isEmpty else { return }
+                DispatchQueue.global().async {
+                    let out = Sys.run(AppDelegate.webhookImagePush(platform: p, url: u, img: path))
+                    Sys.log(out.contains("__WH_FAIL__") ? T(153, "unlock") : T(152))
+                }
             }
         }
         LaunchAtLogin.upgradeIfNeeded()
@@ -2219,7 +2276,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// 单独在终端跑时回退为简单文案。shell 双引号内展开。
     private static var msgVar: String { "LTE Guard: ${LTE_INFO:-\(T(82))}" }
 
+    /// 生成的命令整组带成败标记：程序解析输出记日志，失败自动入待补队列
     static func webhookCmd(platform: Int, url: String, rich: Bool = false) -> String {
+        "( " + webhookCmdRaw(platform: platform, url: url, rich: rich) + " ) >/dev/null 2>&1 && echo __WH_OK__ || echo __WH_FAIL__"
+    }
+
+    private static func webhookCmdRaw(platform: Int, url: String, rich: Bool) -> String {
         let u = url.isEmpty ? "PASTE_YOUR_WEBHOOK_URL" : url
         let m = msgVar
 
@@ -2227,35 +2289,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 不再额外拍。尺寸远低于各平台上限（企微 base64≤2MB、TG≤10MB、
         // Discord≤8MB、ntfy≤15MB；实拍 40-190KB）。照片缺失时仅发文本。
         let gh = CameraSnap.dir
-        let pick = "GH=\"\(gh)\"; IMG1=$(ls -t \"$GH\"/*_wake.jpg 2>/dev/null | head -1); IMG2=$(ls -t \"$GH\"/*_restored.jpg 2>/dev/null | head -1); "
+        // 只认 10 分钟内的照片（文件名含时间戳，sort 即时间序）——
+        // 宁可只发文本，绝不误发上一次的旧照
+        let pick = "GH=\"\(gh)\"; IMG1=$(find \"$GH\" -name '*_wake.jpg' -mmin -10 2>/dev/null | sort | tail -1); IMG2=$(find \"$GH\" -name '*_restored.jpg' -mmin -10 2>/dev/null | sort | tail -1); "
 
         if rich && Self.webhookRichCapable.contains(platform) {
             switch platform {
             case 0:   // 企业微信：详尽文本一条 + 两张 base64 图片
-                let text = "curl -s -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"text\\\",\\\"text\\\":{\\\"content\\\":\\\"\(m)\\\"}}\" '\(u)'"
-                let imgFn = "snd(){ [ -f \"$1\" ] || return; B64=$(base64 -i \"$1\"); MD5=$(md5 -q \"$1\"); curl -s -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"image\\\",\\\"image\\\":{\\\"base64\\\":\\\"$B64\\\",\\\"md5\\\":\\\"$MD5\\\"}}\" '\(u)'; }; snd \"$IMG1\"; snd \"$IMG2\""
+                let text = "curl -sf -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"text\\\",\\\"text\\\":{\\\"content\\\":\\\"\(m)\\\"}}\" '\(u)'"
+                let imgFn = "snd(){ [ -f \"$1\" ] || return; B64=$(base64 -i \"$1\"); MD5=$(md5 -q \"$1\"); curl -sf -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"image\\\",\\\"image\\\":{\\\"base64\\\":\\\"$B64\\\",\\\"md5\\\":\\\"$MD5\\\"}}\" '\(u)'; }; snd \"$IMG1\"; snd \"$IMG2\""
                 return pick + text + "; " + imgFn
             case 3:   // Discord：两张附件 + 详尽文字（缺图时字段为空并不影响文本）
-                return pick + "curl -s -F \"payload_json={\\\"content\\\":\\\"\(m)\\\"}\" ${IMG1:+-F \"file1=@$IMG1\"} ${IMG2:+-F \"file2=@$IMG2\"} '\(u)'"
+                return pick + "curl -sf -F \"payload_json={\\\"content\\\":\\\"\(m)\\\"}\" ${IMG1:+-F \"file1=@$IMG1\"} ${IMG2:+-F \"file2=@$IMG2\"} '\(u)'"
             case 4:   // Telegram：两次 sendPhoto，caption 带详尽信息
                 let photoURL = u.replacingOccurrences(of: "sendMessage", with: "sendPhoto")
-                return pick + "snd(){ [ -f \"$1\" ] || return; curl -s -F \"photo=@$1\" -F \"caption=\(m)\" '\(photoURL)'; }; snd \"$IMG1\"; snd \"$IMG2\""
+                return pick + "snd(){ [ -f \"$1\" ] || return; curl -sf -F \"photo=@$1\" -F \"caption=\(m)\" '\(photoURL)'; }; snd \"$IMG1\"; snd \"$IMG2\""
             default:  // ntfy：详尽文本一条 + 两张 PUT
-                return pick + "curl -s -d \"\(m)\" '\(u)'; snd(){ [ -f \"$1\" ] || return; curl -s -T \"$1\" -H 'X-Title: LTE Guard' '\(u)'; }; snd \"$IMG1\"; snd \"$IMG2\""
+                return pick + "curl -sf -d \"\(m)\" '\(u)'; snd(){ [ -f \"$1\" ] || return; curl -sf -T \"$1\" -H 'X-Title: LTE Guard' '\(u)'; }; snd \"$IMG1\"; snd \"$IMG2\""
             }
         }
 
         switch platform {
         case 4:   // Telegram Bot API：地址需含 bot<token>/sendMessage?chat_id=…
-            return "curl -s -G '\(u)' --data-urlencode \"text=\(m)\""
+            return "curl -sf -G '\(u)' --data-urlencode \"text=\(m)\""
         case 5:   // ntfy.sh：纯文本 POST 到 topic 地址
-            return "curl -s -d \"\(m)\" '\(u)'"
+            return "curl -sf -d \"\(m)\" '\(u)'"
         case 7:   // WhatsApp（CallMeBot：地址含 phone 与 apikey）
-            return "curl -s -G '\(u)' --data-urlencode \"text=\(m)\""
+            return "curl -sf -G '\(u)' --data-urlencode \"text=\(m)\""
         case 9:   // Server酱（sctapi.ftqq.com/KEY.send）
-            return "curl -s -d 'title=LTE Guard' --data-urlencode \"desp=\(m)\" '\(u)'"
+            return "curl -sf -d 'title=LTE Guard' --data-urlencode \"desp=\(m)\" '\(u)'"
         case 11:  // Pushover（地址 query 携带 token 与 user）
-            return "curl -s --data-urlencode \"message=\(m)\" '\(u)'"
+            return "curl -sf --data-urlencode \"message=\(m)\" '\(u)'"
         default:
             let json: String
             switch platform {
@@ -2268,8 +2332,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case 12: json = "{\\\"msgtype\\\":\\\"m.text\\\",\\\"body\\\":\\\"\(m)\\\"}"           // Matrix
             default: json = "{\\\"text\\\":\\\"\(m)\\\"}"   // Slack/Teams/GChat/Mattermost 与自定义
             }
-            return "curl -s -X POST -H 'Content-Type: application/json' -d \"\(json)\" '\(u)'"
+            return "curl -sf -X POST -H 'Content-Type: application/json' -d \"\(json)\" '\(u)'"
         }
+    }
+
+    /// 单张图片补推命令（解锁补拍场景）：按平台生成，带成败标记
+    static func webhookImagePush(platform: Int, url: String, img: String) -> String {
+        let cmd: String
+        switch platform {
+        case 0:
+            cmd = "B64=$(base64 -i \"\(img)\"); MD5=$(md5 -q \"\(img)\"); curl -sf -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"image\\\",\\\"image\\\":{\\\"base64\\\":\\\"$B64\\\",\\\"md5\\\":\\\"$MD5\\\"}}\" '\(url)'"
+        case 3:
+            cmd = "curl -sf -F 'payload_json={\"content\":\"LTE Guard (unlock)\"}' -F \"file1=@\(img)\" '\(url)'"
+        case 4:
+            cmd = "curl -sf -F \"photo=@\(img)\" -F 'caption=LTE Guard (unlock)' '\(url.replacingOccurrences(of: "sendMessage", with: "sendPhoto"))'"
+        default:
+            cmd = "curl -sf -T \"\(img)\" -H 'X-Title: LTE Guard (unlock)' '\(url)'"
+        }
+        return "( \(cmd) ) >/dev/null 2>&1 && echo __WH_OK__ || echo __WH_FAIL__"
     }
 
     /// 从配置里程序添加的 webhook 行回显（平台，地址，是否图文）
@@ -2277,7 +2357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for raw in postCmd.split(separator: "\n") {
             let s = raw.trimmingCharacters(in: .whitespaces)
             guard s.hasSuffix(Detect.mark),
-                  s.hasPrefix("curl -s") || s.hasPrefix("GH=") || s.contains("--snap webhook") else { continue }
+                  s.hasPrefix("curl -s") || s.hasPrefix("GH=") || s.hasPrefix("( ")
+                  || s.contains("__WH_OK__") || s.contains("--snap webhook") else { continue }
             let rich = s.contains("_wake.jpg") || s.contains("--snap webhook")
             let platform: Int
             if s.contains("callmebot") || s.contains("whatsapp") { platform = 7 }
