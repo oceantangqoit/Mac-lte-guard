@@ -306,13 +306,19 @@ enum Updater {
         let exe = app + "/Contents/MacOS/" +
             (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
         let script = """
+        # 等旧实例退出（最多 5 秒）再动它的文件，然后杀净残留——
+        # 单实例保护会让新版在旧实例还活着时直接退出
+        for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -x LTEGuard >/dev/null || break; sleep 0.5; done
+        pkill -x LTEGuard 2>/dev/null
+        sleep 1
         MNT=$(mktemp -d)
         hdiutil attach '\(path)' -nobrowse -quiet -mountpoint "$MNT" || exit 1
         sleep 1
         rm -rf '\(app)' && ditto "$MNT/LTEGuard.app" '\(app)'
         hdiutil detach "$MNT" -quiet
         sleep 1
-        open -a '\(app)' 2>/dev/null || '\(exe)' &
+        # 安装完成自动打开新版
+        open -a '\(app)' 2>/dev/null || '\(exe)' --background &
         """
         Sys.run("nohup sh -c \"\(script.replacingOccurrences(of: "\"", with: "\\\""))\" >/dev/null 2>&1 &", wait: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSApp.terminate(nil) }

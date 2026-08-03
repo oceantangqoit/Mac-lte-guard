@@ -6,11 +6,15 @@ cat > "/Users/$U/Library/LaunchAgents/com.oceantang.lteguard.plist" << PL
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>com.oceantang.lteguard</string>
-<key>ProgramArguments</key><array><string>/Applications/LTEGuard.app/Contents/MacOS/LTEGuard</string></array>
+<key>ProgramArguments</key><array><string>/Applications/LTEGuard.app/Contents/MacOS/LTEGuard</string><string>--background</string></array>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
 </dict></plist>
 PL
 chown "$U" "/Users/$U/Library/LaunchAgents/com.oceantang.lteguard.plist"
+# 先卸服务并杀净旧实例（含用户手动打开的），否则单实例保护会让新版直接退出
 launchctl bootout "gui/$UID_/com.oceantang.lteguard" 2>/dev/null
+pkill -x LTEGuard 2>/dev/null
+sleep 1
+# 装完自动起新版
 launchctl bootstrap "gui/$UID_" "/Users/$U/Library/LaunchAgents/com.oceantang.lteguard.plist" 2>/dev/null
 exit 0
