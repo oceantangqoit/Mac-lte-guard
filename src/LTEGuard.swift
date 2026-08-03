@@ -5,6 +5,127 @@ import IOKit
 import IOKit.pwr_mgt
 import IOKit.usb
 import UserNotifications
+import LocalAuthentication
+
+// MARK: - 身份验证（Touch ID / 锁屏密码）
+// 不自建密码：LocalAuthentication 由系统管理凭据，App 零存储。
+// 两类场景：
+//   · 敏感操作（命令编辑/退出/关自启/拍照开关/配置文件夹）——受总开关控制
+//   · 签约场景（语言文件责任移交、USB 数据风险确认）——始终验证，
+//     生物识别/密码即签名，确认动作可归属到本人
+enum Auth {
+    static var guardEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "authGuard") }
+        set { UserDefaults.standard.set(newValue, forKey: "authGuard") }
+    }
+
+    /// 模态对话框期间主队列不排程，回调必须用 common modes 派发才能及时执行
+    static func onMain(_ block: @escaping () -> Void) {
+        RunLoop.main.perform(inModes: [.common], block: block)
+    }
+
+    /// 验证通过才执行 action；机器没有任何验证手段（未设锁屏密码）时直接放行
+    static func require(then action: @escaping () -> Void) {
+        let ctx = LAContext()
+        var err: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            action(); return
+        }
+        ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: T(131)) { ok, _ in
+            if ok { onMain(action) }
+        }
+    }
+
+    /// 敏感操作入口：开关未开则直接执行
+    static func gate(then action: @escaping () -> Void) {
+        guardEnabled ? require(then: action) : action()
+    }
+
+    /// 签约场景：始终验证，并把使用的验证方式告知回调（供签约存档记录）
+    static func sign(then action: @escaping (_ method: String) -> Void) {
+        let ctx = LAContext()
+        var err: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            // 机器未设锁屏密码：无凭据可验，仅凭点击确认（存档中如实记录）
+            action("confirmation click only — no device credential set")
+            return
+        }
+        let bio = ctx.biometryType == .touchID ? "Touch ID or device password"
+                                                : "device password"
+        ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: T(131)) { ok, _ in
+            if ok { onMain { action("\(bio) (LocalAuthentication)") } }
+        }
+    }
+}
+
+// MARK: - 签约存档
+// 责任移交/风险确认属于"签约"：验证即签名，存档即立据。
+// 每次签约在配置目录 agreement/ 下留一份可读文本，内容固定中英双语，
+// 并原文保留确认时展示的条款（按当时的界面语言）。
+enum Agreement {
+    static var dir: String { I18n.appSupportDir + "/agreement" }
+
+    static func record(kind: String, subject: String, terms: String, method: String) {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let now = Date()
+        let stamp = DateFormatter(); stamp.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let human = DateFormatter(); human.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+        let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let text = """
+        LTE Guard \(ver) — Agreement Record / 签约存档
+        =============================================
+        Time    时间：\(human.string(from: now))
+        Type    类型：\(kind)
+        Subject 对象：\(subject)
+        Signer  签署人：\(who)
+        Method  确认方式：\(method)
+
+        Terms as shown at confirmation / 确认时展示的条款原文：
+        ---------------------------------------------
+        \(terms)
+        ---------------------------------------------
+        The signer confirmed and accepted the terms above via the method stated.
+        签署人已通过上述方式确认并接受以上条款。
+        """
+        let safe = subject.map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        let name = "\(stamp.string(from: now))_\(kind)_\(String(safe)).txt"
+        try? text.write(toFile: dir + "/" + name, atomically: true, encoding: .utf8)
+        Sys.log(T(135, name))
+    }
+
+    /// 是否已签署过某类协议（如拍照协议签一次即可，不重复打扰）
+    static func hasRecord(kind: String) -> Bool {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [])
+            .contains { $0.contains("_\(kind)_") }
+    }
+
+    /// 《门卫室拍照功能使用协议》——中文为准，英文为参考译文
+    static let cameraTerms = """
+    《门卫室拍照功能使用协议》
+
+    一、功能说明。开启本功能后，本软件将在检测到网络断联和/或恢复时调用本机摄像头拍摄照片。照片仅保存于本机配置目录 gatehouse 文件夹，本软件不上传、不对外传输，作者亦无法接触照片内容。
+
+    二、用户承诺。用户承诺仅将本功能用于保护本人合法持有之设备的正当目的；不得用于偷拍、监视、跟踪他人，或实施其他侵害他人肖像权、名誉权、隐私权、个人信息权益的行为；拍摄范围可能涉及第三人的，用户应依法自行履行告知、提示义务并取得必要同意。
+
+    三、责任承担与免责。用户使用本功能的一切行为及其后果由用户自行承担；因用户违反法律法规或本协议使用本功能而产生的任何民事、行政或刑事责任，均由用户自行承担，与作者无关。本软件系依 MIT 许可按"现状"免费提供的开源软件，作者不对本功能的适用性、连续性及照片的完整性作出任何明示或默示的保证。
+
+    四、数据管理。照片的保管、使用与删除均由用户自行负责。
+
+    五、法律适用。本协议的订立、效力、解释与争议解决，适用中华人民共和国法律。
+
+    六、签署。用户通过 Touch ID 或设备密码完成身份验证，即视为已阅读、理解并同意本协议全部条款；签署记录存于配置目录 agreement 文件夹。本协议以中文文本为准，英文译文仅供参考。
+
+    Gatehouse Camera Feature Agreement (reference translation — the Chinese text prevails)
+    1. When enabled, this software takes photos via the built-in camera upon network disconnection and/or recovery. Photos are stored only in the local "gatehouse" folder; nothing is uploaded, and the author has no access to them.
+    2. The user undertakes to use this feature solely for the legitimate purpose of protecting the user's own lawfully held device; not for candid photography, surveillance, stalking, or any act infringing others' portrait, reputation, privacy, or personal-information rights; where third parties may be captured, the user shall give due notice and obtain necessary consent as required by law.
+    3. All consequences of using this feature are borne by the user alone. Any civil, administrative, or criminal liability arising from unlawful or non-compliant use rests with the user and not the author. This is open-source software provided free of charge "as is" under the MIT License, without any express or implied warranty.
+    4. Storage, use, and deletion of photos are the user's own responsibility.
+    5. This agreement is governed by the laws of the People's Republic of China.
+    6. Verification via Touch ID or the device password constitutes the user's signature and acceptance of all terms; the signed record is kept in the "agreement" folder.
+    """
+}
 import AVFoundation
 
 // MARK: - 门卫室（断联/恢复时拍照留档）
@@ -1396,11 +1517,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
         m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
         m.addItem(item(T(12), #selector(openLog), symbol: "doc.text"))
-        m.addItem(item(T(68), #selector(openConfigFolder), symbol: "folder"))
+        m.addItem(item(T(68), #selector(openConfigFolderGated), symbol: "folder"))
         m.addItem(item(T(30), #selector(toggleLaunch),
                        state: LaunchAtLogin.isEnabled ? .on : .off, symbol: "power.circle"))
+        m.addItem(item(T(132), #selector(toggleAuthGuard),
+                       state: Auth.guardEnabled ? .on : .off, symbol: "touchid"))
         m.addItem(item(T(29), #selector(showDiagnosis), symbol: "stethoscope"))
-        m.addItem(item(T(53), #selector(editPostCmd), symbol: "terminal"))
+        m.addItem(item(T(53), #selector(editPostCmdGated), symbol: "terminal"))
 
         // 重置任意 USB 设备（音频接口、摄像头、硬盘、扩展坞等同样会睡眠后假死）
         let usbItem = item(T(75), nil, symbol: "cable.connector")
@@ -1463,7 +1586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         m.addItem(langItem)
         m.addItem(.separator())
         m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
-        m.addItem(item(T(14), #selector(quit), symbol: "power"))
+        m.addItem(item(T(14), #selector(quitGated), symbol: "power"))
         statusItem.menu = m
     }
 
@@ -1602,11 +1725,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 曾被拒→提示并打开系统设置的摄像头页（系统不会二次弹窗）
         editor.willEnable = { [weak self] p, btn in
             guard p.hint.hasPrefix("--snap") else { return true }
+            // 首次开启先签署《门卫室拍照功能使用协议》：展示全文→确认→
+            // Touch ID/密码验证即签名→存档 agreement/。签过一次不再打扰
+            if !Agreement.hasRecord(kind: "camera-enable") {
+                let a = NSAlert()
+                a.messageText = T(136)
+                let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: 460, height: 240))
+                let terms = NSTextView(frame: sv.bounds)
+                terms.string = Agreement.cameraTerms
+                terms.isEditable = false
+                terms.font = NSFont.systemFont(ofSize: 11)
+                terms.autoresizingMask = [.width]
+                sv.documentView = terms
+                sv.hasVerticalScroller = true
+                sv.borderType = .bezelBorder
+                a.accessoryView = sv
+                a.addButton(withTitle: T(17))
+                a.addButton(withTitle: T(18))
+                guard a.runModal() == .alertFirstButtonReturn else { return false }
+                Auth.sign { method in
+                    Agreement.record(kind: "camera-enable",
+                                     subject: p.pre ? "on-disconnect" : "after-recovery",
+                                     terms: Agreement.cameraTerms, method: method)
+                    btn.performClick(nil)   // 签署完成，补勾（重新走权限检查）
+                }
+                return false
+            }
             switch AVCaptureDevice.authorizationStatus(for: .video) {
             case .authorized: return true
             case .notDetermined:
                 AVCaptureDevice.requestAccess(for: .video) { ok in
-                    if ok { DispatchQueue.main.async { btn.performClick(nil) } }
+                    if ok { Auth.onMain { btn.performClick(nil) } }
                 }
                 return false
             default:
@@ -1956,19 +2105,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         a.addButton(withTitle: T(18))
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertFirstButtonReturn else { return }
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            Sys.log(T(99, name, "\(vid):\(pid)"))
-            let out = Sys.run("'\(Sys.usbresetPath)' \(vid) \(pid) 2>&1")
-            Sys.log(out.contains("OK") ? T(112, "\(vid):\(pid)") : T(113, out))
-            DispatchQueue.main.async { self.notify(T(79, name)) }
+        // 数据风险确认属签约：验证即签名，存档 agreement/ 后再执行
+        Auth.sign { [weak self] method in
+            Agreement.record(kind: "usb-reset", subject: "\(name) \(vid):\(pid)",
+                             terms: T(77, name) + "\n\n" + T(78), method: method)
+            DispatchQueue.global(qos: .userInitiated).async {
+                Sys.log(T(99, name, "\(vid):\(pid)"))
+                let out = Sys.run("'\(Sys.usbresetPath)' \(vid) \(pid) 2>&1")
+                Sys.log(out.contains("OK") ? T(112, "\(vid):\(pid)") : T(113, out))
+                Auth.onMain { self?.notify(T(79, name)) }
+            }
         }
     }
 
     @objc func toggleLaunch() {
-        LaunchAtLogin.set(!LaunchAtLogin.isEnabled)
-        notify(LaunchAtLogin.isEnabled ? T(43) : T(44))
-        refreshIcon()
+        if LaunchAtLogin.isEnabled {
+            // 关闭自启会让守护在重启后失效——敏感方向，受门禁
+            Auth.gate { [weak self] in
+                LaunchAtLogin.set(false)
+                self?.notify(T(44))
+                self?.refreshIcon()
+            }
+        } else {
+            LaunchAtLogin.set(true)
+            notify(T(43))
+            refreshIcon()
+        }
     }
 
     @objc func showDiagnosis() {
@@ -2043,7 +2205,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             a.addButton(withTitle: T(18))
             NSApp.activate(ignoringOtherApps: true)
             guard a.runModal() == .alertFirstButtonReturn else { return }
+            // 责任移交属签约：验证即签名，存档 agreement/ 后再导出
+            Auth.sign { [weak self] method in
+                Agreement.record(kind: "language-handover", subject: code,
+                                 terms: T(73) + "\n\n" + T(74), method: method)
+                self?.exportLangFile(code: code)
+            }
+            return
+        }
+        // 已导出过：直接打开自己的副本
+        if fm.fileExists(atPath: dst) {
+            NSWorkspace.shared.open(URL(fileURLWithPath: dst))
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir))
+        }
+    }
 
+    /// 签署完成后的实际导出（署名替换 + 责任声明头）
+    private func exportLangFile(code: String) {
+        let fm = FileManager.default
+        let dst = I18n.userLangDir + "/\(code).ini"
+        guard let r = Bundle.main.resourcePath, !fm.fileExists(atPath: dst) else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir)); return
+        }
+        do {
             guard var text = try? String(contentsOfFile: r + "/lang/\(code).ini", encoding: .utf8)
             else { NSWorkspace.shared.open(URL(fileURLWithPath: I18n.userLangDir)); return }
 
@@ -2121,6 +2306,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func quit() {
         NSApp.terminate(nil)
+    }
+
+    // ── 敏感操作门禁（受「敏感操作需要验证」开关控制）──
+    @objc func editPostCmdGated()    { Auth.gate { [weak self] in self?.editPostCmd() } }
+    @objc func quitGated()           { Auth.gate { NSApp.terminate(nil) } }
+    @objc func openConfigFolderGated() { Auth.gate { [weak self] in self?.openConfigFolder() } }
+
+    /// 开关本身也要防绕过：开启随手，关闭需验证
+    @objc func toggleAuthGuard() {
+        if Auth.guardEnabled {
+            Auth.require { [weak self] in
+                Auth.guardEnabled = false
+                self?.notify(T(134))
+                self?.refreshIcon()
+            }
+        } else {
+            Auth.guardEnabled = true
+            notify(T(133))
+            refreshIcon()
+        }
     }
 
     private func notify(_ msg: String) {
