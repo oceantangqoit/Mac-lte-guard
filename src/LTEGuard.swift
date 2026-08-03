@@ -242,8 +242,33 @@ enum CameraSnap {
     /// 锁屏期间欠下的拍照（解锁瞬间统一补拍一张 unlock）
     static var pendingUnlockSnap = false
 
+    /// 该有照片却没拍到时提醒用户（多为升级后未重新授权）；每小时最多一次，不刷屏
+    private static var lastWarn = Date.distantPast
+    static func warnNoPhoto() {
+        guard Date().timeIntervalSince(lastWarn) > 3600 else { return }
+        lastWarn = Date()
+        Sys.log(T(159))
+        Notifier.post(T(159))
+    }
+
     static func take(tag: String, completion: @escaping (String?) -> Void) {
-        guard authorized else { completion(nil); return }
+        // 授权把关：未询问则当场请求（弹系统窗，授权后立刻补拍）；
+        // 已拒绝则记日志说明——绝不静默失败
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: break
+        case .notDetermined:
+            Sys.log(T(157))
+            AVCaptureDevice.requestAccess(for: .video) { ok in
+                if ok { DispatchQueue.main.async { take(tag: tag, completion: completion) } }
+                else { Sys.log(T(129)); completion(nil) }
+            }
+            return
+        default:
+            Sys.log(T(129))
+            warnNoPhoto()
+            completion(nil)
+            return
+        }
         // 锁屏中拍不了（系统隐私保护）：登记欠账，解锁瞬间补拍——
         // 拍到的正是解锁操作者，门卫室语义更准
         if screenLocked && tag != "unlock" {
@@ -258,7 +283,7 @@ enum CameraSnap {
         session.sessionPreset = .photo
         guard let cam = AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: cam),
-              session.canAddInput(input) else { Sys.log(T(155, tag)); completion(nil); return }
+              session.canAddInput(input) else { Sys.log(T(155, tag)); warnNoPhoto(); completion(nil); return }
         session.addInput(input)
         let output = AVCapturePhotoOutput()
         guard session.canAddOutput(output) else { completion(nil); return }
@@ -277,6 +302,7 @@ enum CameraSnap {
                     completion(path)
                 } else {
                     Sys.log(T(155, tag))   // 失败不再静默——没有照片必须有解释
+                    warnNoPhoto()
                     completion(nil)
                 }
             }
@@ -1410,6 +1436,14 @@ struct Diagnosis {
         let ok = fm.isExecutableFile(atPath: tool)
         d.lines.append("\(T(33)): \(ok ? T(35) : T(36))  \(tool)")
         if !ok && cfg.targets.contains(where: { !$0.vid.isEmpty }) { d.problems.append(T(39)) }
+
+        // 3b 摄像头授权（配置了拍照才检查——没配就与本机无关）
+        if (cfg.preCmd + cfg.postCmd).contains("--snap") {
+            let st = AVCaptureDevice.authorizationStatus(for: .video)
+            let txt = st == .authorized ? T(35) : (st == .notDetermined ? T(158) : T(36))
+            d.lines.append("\(T(156)): \(txt)")
+            if st != .authorized { d.problems.append(T(159)) }
+        }
 
         // 4 目标配置（逐对象）
         if cfg.targets.isEmpty || cfg.targets.contains(where: { $0.dev.isEmpty || ($0.vid.isEmpty && $0.service.isEmpty) }) {
