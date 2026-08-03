@@ -734,17 +734,22 @@ final class Healer {
     /// 对健康设备多做一次软件拔插无害，预检反而白白拖慢恢复。
     /// 手动（manual）：「检测并修复」——先逐个检测，全部正常就反馈无需修复；
     /// 只修异常的，且不受冷却期限制（用户点了就要立即响应）。
+    /// 启动（launch）：补救"App 启动前就发生过睡眠"的空档（如开机停在
+    /// 登录界面时睡过，登录后 App 才起来，唤醒事件早已错过）——
+    /// 逻辑同手动（先检测、坏才修），但全部健康时静默，不打扰。
     func checkAndHeal(reason: String) {
         q.async {
             let cfg = Config.load()
             let now = Date()
             let due: [Target]
-            if reason == "manual" {
+            if reason == "manual" || reason == "launch" {
                 let sick = cfg.targets.filter { !$0.dev.isEmpty && !Sys.interfaceHealthy($0.dev) }
                 HealthCache.shared.refresh(cfg.targets.map(\.dev))
                 if sick.isEmpty {
-                    Notifier.post(T(119))
-                    AppDelegate.shared?.flashResult("✓")
+                    if reason == "manual" {
+                        Notifier.post(T(119))
+                        AppDelegate.shared?.flashResult("✓")
+                    }
                     return
                 }
                 due = sick
@@ -786,7 +791,9 @@ final class Healer {
         healingDelta(+1)
         defer { healingDelta(-1) }
         let t0 = Date()
-        let rTxt = reason == "wake" ? T(110) : T(111)   // 日志里的触发原因也本地化
+        let rTxt = reason == "wake" ? T(110)
+                 : reason == "launch" ? T(130)
+                 : T(111)   // 日志里的触发原因也本地化
 
         if !t.vid.isEmpty {
             Sys.log(T(93, rTxt, t.dev, "\(t.vid):\(t.pid)"))
@@ -1299,6 +1306,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         HealthCache.shared.refresh(cfg0.targets.map(\.dev))
         if !FileManager.default.fileExists(atPath: Config.path) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.firstRunGuide() }
+        }
+        // 补救"App 启动前就睡过"的空档：开机停在登录界面时睡眠→网卡假死→
+        // 登录后 App 才启动，唤醒事件早已错过。启动后延迟检测一次，坏了才修、
+        // 健康则静默。延迟 8 秒是给登录后网络栈初始化（DHCP 等）留时间，避免误判
+        DispatchQueue.global().asyncAfter(deadline: .now() + 8) {
+            Healer.shared.checkAndHeal(reason: "launch")
         }
     }
 
