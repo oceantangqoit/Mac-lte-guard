@@ -6,6 +6,7 @@ import IOKit.pwr_mgt
 import IOKit.usb
 import UserNotifications
 import LocalAuthentication
+import CommonCrypto
 
 // MARK: - 身份验证（Touch ID / 锁屏密码）
 // 不自建密码：LocalAuthentication 由系统管理凭据，App 零存储。
@@ -70,8 +71,8 @@ enum WebhookSender {
 
     /// 用户配置的 webhook（平台，地址）；未配置返回 nil
     static func configured() -> (Int, String)? {
-        let (p, u, _) = AppDelegate.parseWebhook(from: Config.load().postCmd)
-        return u.isEmpty ? nil : (p, u)
+        let c = Config.load()
+        return c.whURL.isEmpty ? nil : (c.whPlatform, c.whURL)
     }
 
     private static func request(platform: Int, url: String, text: String) -> URLRequest? {
@@ -133,6 +134,104 @@ enum WebhookSender {
         } else {
             try? line.write(toFile: outboxPath, atomically: true, encoding: .utf8)
         }
+    }
+
+    /// 发送文本＋照片。照片为空或平台不支持图文时退化为纯文本。
+    /// 全程 URLSession，不经 shell——成败可判、可补发。
+    static func sendRich(_ text: String, images: [String]) {
+        guard let (p, u) = configured() else { return }
+        let imgs = images.filter { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }
+        guard !imgs.isEmpty, AppDelegate.webhookRichCapable.contains(p) else { send(text); return }
+        switch p {
+        case 0:   // 企业微信：文本一条 + 每张 base64 图片一条（协议不支持真混排）
+            send(text)
+            for f in imgs {
+                guard let d = FileManager.default.contents(atPath: f) else { continue }
+                postJSON(u, ["msgtype": "image",
+                             "image": ["base64": d.base64EncodedString(), "md5": md5Hex(d)]])
+            }
+        case 3:   // Discord：文字与全部附件同一条（真混排）
+            postMultipart(u, fields: ["payload_json": "{\"content\":\"\(esc(text))\"}"],
+                          files: imgs, prefix: "file")
+        case 4:   // Telegram：单张 sendPhoto 带 caption；多张走相册
+            if imgs.count == 1 {
+                postMultipart(u.replacingOccurrences(of: "sendMessage", with: "sendPhoto"),
+                              fields: ["caption": text], files: imgs, prefix: "photo", single: true)
+            } else {
+                var media: [[String: Any]] = []
+                for i in imgs.indices {
+                    var m: [String: Any] = ["type": "photo", "media": "attach://p\(i)"]
+                    if i == 0 { m["caption"] = text }
+                    media.append(m)
+                }
+                let js = (try? JSONSerialization.data(withJSONObject: media))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+                postMultipart(u.replacingOccurrences(of: "sendMessage", with: "sendMediaGroup"),
+                              fields: ["media": js], files: imgs, prefix: "p", zeroBased: true)
+            }
+        default:  // ntfy：图片 PUT 时把文字放进 X-Message，一条通知即图文
+            for (i, f) in imgs.enumerated() {
+                guard let d = FileManager.default.contents(atPath: f),
+                      let url = URL(string: u) else { continue }
+                var req = URLRequest(url: url, timeoutInterval: 20)
+                req.httpMethod = "PUT"
+                req.setValue("LTE Guard", forHTTPHeaderField: "X-Title")
+                if i == 0 { req.setValue(text, forHTTPHeaderField: "X-Message") }
+                req.httpBody = d
+                fire(req)
+            }
+        }
+    }
+
+    private static func esc(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    /// 企业微信图片消息要求附 md5（仅作协议校验用）
+    private static func md5Hex(_ d: Data) -> String {
+        var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
+        d.withUnsafeBytes { _ = CC_MD5($0.baseAddress, CC_LONG(d.count), &digest) }
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func postJSON(_ u: String, _ body: [String: Any]) {
+        guard let url = URL(string: u) else { return }
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        fire(req)
+    }
+
+    private static func postMultipart(_ u: String, fields: [String: String], files: [String],
+                                      prefix: String, zeroBased: Bool = false, single: Bool = false) {
+        guard let url = URL(string: u) else { return }
+        let boundary = "LTEGuard" + UUID().uuidString
+        var body = Data()
+        func put(_ t: String) { body.append(t.data(using: .utf8)!) }
+        for (k, v) in fields {
+            put("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(k)\"\r\n\r\n\(v)\r\n")
+        }
+        for (i, f) in files.enumerated() {
+            guard let d = FileManager.default.contents(atPath: f) else { continue }
+            let name = single ? prefix : "\(prefix)\(zeroBased ? i : i + 1)"
+            put("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"; filename=\"\((f as NSString).lastPathComponent)\"\r\nContent-Type: image/jpeg\r\n\r\n")
+            body.append(d)
+            put("\r\n")
+        }
+        put("--\(boundary)--\r\n")
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        fire(req)
+    }
+
+    private static func fire(_ req: URLRequest) {
+        URLSession.shared.dataTask(with: req) { _, resp, err in
+            let ok = err == nil && (200..<300).contains((resp as? HTTPURLResponse)?.statusCode ?? 0)
+            Sys.log(ok ? T(152) : T(153, err?.localizedDescription ?? "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)"))
+        }.resume()
     }
 
     /// 网络恢复后补发队列中的消息，逐条注明原发送时间；仍失败的保留待下次
@@ -617,6 +716,10 @@ struct Config {
     var postCmd = ""   // 恢复后执行
     /// 勾选了「操作通报」的敏感操作代号（发生时发 webhook）
     var notifyOps: Set<String> = []
+    /// Webhook 配置（单一真相源：只在「通知与通报」里设，由程序内建发送）
+    var whPlatform = 0
+    var whURL = ""
+    var whRich = false
 
     // 兼容视图：部分旧代码路径仍以"第一个对象"工作
     var dev: String { targets.first?.dev ?? "" }
@@ -639,6 +742,15 @@ struct Config {
 
             // TARGETS/PRE_CMD/POST_CMD 的值里可能含 \n、'、"   #lteguard" 标记，
             // 绝不能走"剥行尾注释"，必须按引号边界+转义规则解析（\' 不是结束，裸 ' 才是）
+            if key == "WEBHOOK_URL" {
+                c.whURL = Config.parseQuoted(raw) ?? raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+                continue
+            }
+            if key == "WEBHOOK_PLATFORM" || key == "WEBHOOK_RICH" {
+                let v = Config.parseQuoted(raw) ?? raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+                if key == "WEBHOOK_PLATFORM" { c.whPlatform = Int(v) ?? 0 } else { c.whRich = (v == "1") }
+                continue
+            }
             if key == "NOTIFY_OPS" {
                 let v = Config.parseQuoted(raw) ?? raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
                 c.notifyOps = Set(v.split(separator: ",").map(String.init).filter { !$0.isEmpty })
@@ -685,6 +797,9 @@ struct Config {
         # TARGETS：每行一个治愈对象，字段以制表符分隔：接口\t服务名\tUSB_VID\tUSB_PID
         TARGETS='\(Config.escape(rows))'
         NOTIFY_OPS='\(notifyOps.sorted().joined(separator: ","))'
+        WEBHOOK_PLATFORM='\(whPlatform)'
+        WEBHOOK_URL='\(whURL)'
+        WEBHOOK_RICH='\(whRich ? 1 : 0)'
         PRE_CMD='\(Config.escape(preCmd))'
         POST_CMD='\(Config.escape(postCmd))'
 
@@ -1153,8 +1268,8 @@ final class I18n {
     }
 
     // Unicode 双向算法隔离符（W3C i18n 推荐做法）
-    private static let FSI = "\u{2068}"   // First Strong Isolate
-    private static let PDI = "\u{2069}"   // Pop Directional Isolate
+    static let FSI = "\u{2068}"   // First Strong Isolate
+    static let PDI = "\u{2069}"   // Pop Directional Isolate
     static let RLM = "\u{200F}"           // Right-to-Left Mark
 
     /// 取文案：t(21, "Wi-Fi", "USB") -> "已守护 Wi-Fi，方式：USB"
@@ -1312,6 +1427,11 @@ final class Healer {
                             Sys.log(T(152))
                         }
                     }
+                    // 恢复通报由程序内建发送；勾了图文就带上本次现场照
+                    let shots = cfg.whRich
+                        ? [CameraSnap.lastShots["wake"] ?? "", CameraSnap.lastShots["restored"] ?? ""]
+                        : []
+                    WebhookSender.sendRich("LTE Guard: \(info)", images: shots)
                     WebhookSender.flushOutbox()   // 网络已恢复：补发滞留消息
                 }
             }
@@ -1806,6 +1926,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private weak var webhookPopup: NSPopUpButton?
     private weak var webhookField: NSTextField?
     private weak var webhookRichPop: NSPopUpButton?
+    /// 「通知与通报」窗口控件
+    private weak var nfPlatform: NSPopUpButton?
+    private weak var nfRich: NSPopUpButton?
+    private weak var nfField: NSTextField?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -1948,6 +2072,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             DispatchQueue.global().async { Updater.dailyCheckIfDue() }
         }
 
+        // 一次性迁移：webhook 从命令行搬进「通知与通报」的独立配置，
+        // 此后由程序内建发送（可判成败、能补发、能带图），不再走 shell curl
+        if cfg0.whURL.isEmpty, cfg0.postCmd.contains(Detect.mark) {
+            let (p0, u0, r0) = AppDelegate.parseWebhook(from: cfg0.postCmd)
+            if !u0.isEmpty {
+                var c = cfg0
+                c.whPlatform = p0; c.whURL = u0; c.whRich = r0
+                c.postCmd = c.postCmd.split(separator: "\n", omittingEmptySubsequences: false)
+                    .filter { line in
+                        let t = line.trimmingCharacters(in: .whitespaces)
+                        return !(t.hasSuffix(Detect.mark)
+                                 && (t.hasPrefix("curl -s") || t.hasPrefix("( ") || t.hasPrefix("IMG1=")))
+                    }
+                    .joined(separator: "\n")
+                c.save(); cfg0 = c
+                Sys.log(T(188))
+            }
+        }
+
         // 新版本首次运行：此刻用户刚装完、人就在电脑前，是办妥摄像头授权的
         // 唯一好时机——重装会让旧授权失配，而唤醒/锁屏时弹窗根本没人点。
         // 拒绝态先重置授权记录，这样能直接弹系统窗，不必让用户翻系统设置。
@@ -2088,6 +2231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         iconItem.submenu = iconMenu
         setMenu.addItem(iconItem)
+        setMenu.addItem(item(T(184), #selector(editNotifyGated), symbol: "bell.badge"))
         setMenu.addItem(languageItem())
         setItem.submenu = setMenu
         m.addItem(setItem)
@@ -2153,7 +2297,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let minorityCodes: Set<String> = ["bo", "ug", "mn-Mong", "kk", "za", "ko-CN"]
 
         func langRow(_ code: String, _ name: String) -> NSMenuItem {
-            let li = NSMenuItem(title: name, action: #selector(switchLang(_:)), keyEquivalent: "")
+            // 语言名是「当地文字（中文名）」混排；RTL 文字与中文相邻时括号会被
+            // 双向算法带偏，用 FSI…PDI 隔离成独立方向段，各按各的读序显示
+            let li = NSMenuItem(title: I18n.FSI + name + I18n.PDI, action: #selector(switchLang(_:)), keyEquivalent: "")
             li.target = self
             li.representedObject = code
             li.state = (code == I18n.shared.code) ? .on : .off
@@ -2428,9 +2574,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                       hint: "--snap restored"),
             PresetCmd(title: T(83), command: soundCmd(initialSound),
                       hint: "afplay"),
-            PresetCmd(title: T(92),
-                      command: Self.webhookCmd(platform: whInit.0, url: whInit.1, rich: whInit.2),
-                      hint: "curl -s"),
         ]
         presets.append((T(84), common))
 
@@ -3059,6 +3202,122 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    // MARK: 通知与通报（webhook 与操作通报的唯一配置处）
+
+    /// 图文可用性＝平台支持 且 已勾选拍照（图文复用现场照，没拍照就没图可发）
+    private func nfRefreshRich() {
+        guard let rp = nfRich else { return }
+        let cfg = Config.load()
+        let ok = AppDelegate.webhookRichCapable.contains(nfPlatform?.indexOfSelectedItem ?? 0)
+              && (cfg.preCmd + cfg.postCmd).contains("--snap")
+        rp.item(at: 1)?.isEnabled = ok
+        if !ok, rp.indexOfSelectedItem == 1 { rp.selectItem(at: 0) }
+    }
+
+    @objc private func nfPlatformChanged(_ sender: NSPopUpButton) { nfRefreshRich() }
+
+    @objc private func nfHelp(_ sender: NSButton) {
+        for u in AppDelegate.webhookDocURLs(platform: nfPlatform?.indexOfSelectedItem ?? 0) {
+            if let url = URL(string: u) { NSWorkspace.shared.open(url) }
+        }
+    }
+
+    /// 当场试发一条：先存下当前填的平台与地址，再走内建发送器
+    @objc private func nfTest(_ sender: NSButton) {
+        var c = Config.load()
+        c.whPlatform = nfPlatform?.indexOfSelectedItem ?? 0
+        c.whURL = nfField?.stringValue.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !c.whURL.isEmpty else { notify(T(123)); return }
+        c.save()
+        WebhookSender.send(T(187))
+        notify(T(187))
+    }
+
+    /// 「通知与通报」：Webhook 地址与敏感操作通报集中在此，改一处即处处生效
+    @objc func editNotify() {
+        var cfg = Config.load()
+        let a = NSAlert()
+        a.messageText = T(184)
+        a.informativeText = I18n.shared.paragraph(T(185))
+
+        let W: CGFloat = 480
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 318))
+
+        func label(_ t: String, _ y: CGFloat) -> NSTextField {
+            let l = NSTextField(labelWithString: t)
+            l.font = NSFont.boldSystemFont(ofSize: 11)
+            l.textColor = .secondaryLabelColor
+            l.frame = NSRect(x: 0, y: y, width: W, height: 16)
+            return l
+        }
+        box.addSubview(label(T(92), 296))
+
+        let pop = NSPopUpButton(frame: NSRect(x: 0, y: 264, width: 210, height: 26), pullsDown: false)
+        pop.addItems(withTitles: AppDelegate.webhookPlatforms)
+        pop.selectItem(at: min(cfg.whPlatform, AppDelegate.webhookPlatforms.count - 1))
+        pop.target = self; pop.action = #selector(nfPlatformChanged(_:))
+        box.addSubview(pop)
+
+        let rich = NSPopUpButton(frame: NSRect(x: 218, y: 264, width: 116, height: 26), pullsDown: false)
+        rich.addItems(withTitles: [T(145), T(146)])
+        rich.autoenablesItems = false
+        box.addSubview(rich)
+
+        let help = NSButton(frame: NSRect(x: W - 28, y: 264, width: 26, height: 26))
+        help.bezelStyle = .helpButton; help.title = ""
+        help.toolTip = T(124); help.target = self; help.action = #selector(nfHelp(_:))
+        box.addSubview(help)
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 232, width: W, height: 24))
+        field.placeholderString = T(123)
+        field.stringValue = cfg.whURL
+        field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        box.addSubview(field)
+
+        let test = NSButton(frame: NSRect(x: 0, y: 200, width: 130, height: 26))
+        test.bezelStyle = .rounded; test.title = T(186)
+        test.target = self; test.action = #selector(nfTest(_:))
+        box.addSubview(test)
+
+        nfPlatform = pop; nfRich = rich; nfField = field
+        rich.selectItem(at: cfg.whRich ? 1 : 0)
+        nfRefreshRich()
+
+        box.addSubview(label(T(176), 174))
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 168))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let cat = OpsNotify.catalog
+        let rh: CGFloat = 22
+        let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16,
+                                       height: max(168, CGFloat(cat.count) * rh + 8)))
+        var boxes: [(NSButton, String)] = []
+        var y = doc.frame.height - rh
+        for (code, title) in cat {
+            let cb = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+            cb.state = cfg.notifyOps.contains(code) ? .on : .off
+            cb.frame = NSRect(x: 6, y: y, width: W - 32, height: 18)
+            doc.addSubview(cb)
+            boxes.append((cb, code))
+            y -= rh
+        }
+        scroll.documentView = doc
+        box.addSubview(scroll)
+
+        a.accessoryView = box
+        a.addButton(withTitle: T(17))
+        a.addButton(withTitle: T(18))
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+
+        cfg.whPlatform = pop.indexOfSelectedItem
+        cfg.whURL = field.stringValue.trimmingCharacters(in: .whitespaces)
+        cfg.whRich = (rich.indexOfSelectedItem == 1)
+        cfg.notifyOps = Set(boxes.filter { $0.0.state == .on }.map { $0.1 })
+        cfg.save()
+        notify(T(55))
+    }
+
     @objc func quit() {
         NSApp.terminate(nil)
     }
@@ -3142,6 +3401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     @objc func openConfigFolderGated() { Auth.gate("config") { [weak self] in self?.openConfigFolder() } }
     @objc func openLogGated()        { Auth.gate("log") { [weak self] in self?.openLog() } }
+    @objc func editNotifyGated()     { Auth.gate("editcmd") { [weak self] in self?.editNotify() } }
 
     /// 开关本身也要防绕过：开启随手，关闭需验证
     @objc func toggleAuthGuard() {

@@ -3,6 +3,13 @@
 set -e
 cd "$(dirname "$0")"
 VER="${1:-1.0.0}"
+
+# 版本快照：每次构建先把源码原样存一份到本地 snapshots/（.gitignore 已忽略），
+# 改坏了随时能翻回来——比只靠 git 提交多一层保险
+SNAP="snapshots/$VER-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$SNAP"
+cp -R src lang packaging build.sh "$SNAP/" 2>/dev/null
+ls -1dt snapshots/*/ 2>/dev/null | tail -n +40 | xargs rm -rf 2>/dev/null   # 只留最近 39 份
 B=build; rm -rf $B dist; mkdir -p $B dist
 touch $B/.metadata_never_index   # 防止中间产物被 Spotlight 收录
 
