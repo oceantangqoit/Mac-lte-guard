@@ -1262,7 +1262,10 @@ final class I18n {
     }
 
     /// 当前语言是否从右向左书写
-    var isRTL: Bool {
+    var isRTL: Bool { I18n.isRTL(code) }
+
+    /// 某语言是否自右向左书写（按语言代码判断，与当前界面语言无关）
+    static func isRTL(_ code: String) -> Bool {
         let base = code.split(separator: "-").first.map(String.init) ?? code
         return ["ar", "he", "fa", "ur", "ug", "ps", "ckb", "yi", "dv"].contains(base)
     }
@@ -2300,6 +2303,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // 语言名是「当地文字（中文名）」混排；RTL 文字与中文相邻时括号会被
             // 双向算法带偏，用 FSI…PDI 隔离成独立方向段，各按各的读序显示
             let li = NSMenuItem(title: I18n.FSI + name + I18n.PDI, action: #selector(switchLang(_:)), keyEquivalent: "")
+            // 自右向左书写的语言：该条目本身也按 RTL 排版（右对齐、文字右起），
+            // 与当前界面语言无关——阿拉伯语一行就该有阿拉伯语的样子
+            if I18n.isRTL(code) {
+                let ps = NSMutableParagraphStyle()
+                ps.baseWritingDirection = .rightToLeft
+                ps.alignment = .right
+                li.attributedTitle = NSAttributedString(
+                    string: I18n.RLM + name,
+                    attributes: [.paragraphStyle: ps,
+                                 .font: NSFont.menuFont(ofSize: 0)])
+            }
             li.target = self
             li.representedObject = code
             li.state = (code == I18n.shared.code) ? .on : .off
