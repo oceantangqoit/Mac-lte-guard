@@ -366,7 +366,8 @@ final class I18n {
         // 排序：汉语及其方言 → 中国少数民族语言 → 其他（按代码）
         let priority = [
             // 汉语及其方言
-            "zh-Hans", "zh-Hant", "yue", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
+            "zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei", "cmn-henan",
+            "cmn-shaanxi", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
             // 中国少数民族语言
             "bo", "ug", "mn-Mong", "kk",
             // 邻近与友好国家

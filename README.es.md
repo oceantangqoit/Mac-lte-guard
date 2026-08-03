@@ -122,7 +122,7 @@ LTE Guard es una herramienta residente en la barra de menús que escucha los eve
 - 🔌 **También sirve para adaptadores no USB** — recurre automáticamente a reiniciar el servicio de red
 - 🛠 **Enganches de comandos en dos fases** — unos comandos se ejecutan **en cuanto se detecta el corte** (p. ej. abrir el panel de Red y ver la reparación en directo) y otros **tras la recuperación** (reconectar un proxy, volver a marcar, etc.)
 - 🔔 **Notificaciones solo con buenas noticias** — recibes exactamente una notificación, cuando el adaptador vuelve *y* se ha comprobado que Internet funciona de verdad (con el tiempo empleado); reparación en curso, sin Internet y fallo se expresan solo en el icono de la barra de menús (giro / `✓8s` / `⚠︎` / `✕`)
-- 🌍 **62 idiomas** — interfaz y registros totalmente localizados; sigue automáticamente al sistema y también se puede elegir a mano en el menú
+- 🌍 **66 idiomas** — interfaz y registros totalmente localizados; sigue automáticamente al sistema y también se puede elegir a mano en el menú
 - 🪶 **Cero dependencias** — una sola app: sin demonios instalados, sin Homebrew y sin ninguna elevación de privilegios
 
 ## Instalación
@@ -181,7 +181,7 @@ Resto de opciones del menú:
 | Restablecer dispositivo USB | Lista todos los dispositivos USB y les aplica un desenchufado por software con un clic: vale igual para interfaces de audio, cámaras, discos y docks |
 | Icono en la barra de menús | Mostrar siempre / Mostrar solo ante anomalías / Ocultar (**si lo ocultas, basta con abrir la app otra vez desde «Aplicaciones» para recuperarlo**) |
 | Abrir carpeta de configuración | Abre en el Finder la configuración, el registro y la carpeta de idiomas |
-| Idioma | Cambio entre 62 idiomas; desde el submenú puedes editar el idioma actual o abrir la carpeta de idiomas |
+| Idioma | Cambio entre 66 idiomas; desde el submenú puedes editar el idioma actual o abrir la carpeta de idiomas |
 
 ## Idiomas de derecha a izquierda (RTL)
 
@@ -195,7 +195,7 @@ Como el cambio de idioma está implementado dentro de la propia app (leyendo `la
 
 ## Varios idiomas
 
-Incluye **62 idiomas**, se elige automáticamente según el idioma del sistema al arrancar y también puedes cambiarlo a mano en el menú «Idioma» (recuerda tu elección).
+Incluye **66 idiomas**, se elige automáticamente según el idioma del sistema al arrancar y también puedes cambiarlo a mano en el menú «Idioma» (recuerda tu elección).
 
 Los idiomas añadidos más tarde se tradujeron con ayuda de IA y todavía no los ha revisado un hablante nativo; así consta en la cabecera del archivo. **Si ves una expresión poco natural, corrige esa línea y envía un PR**: es la forma más sencilla de contribuir.
 

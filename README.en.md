@@ -131,7 +131,7 @@ LTE Guard is a watchdog that sits in your menu bar and listens for system wake e
 - 🔌 **Works with non-USB adapters too** — falls back to restarting the network service
 - 🛠 **Two-phase command hooks** — one set runs **the moment disconnection is detected** (e.g. open the Network pane and watch the repair live), another **after recovery** (reconnect a proxy, redial, …)
 - 🔔 **Success-only notifications** — you get exactly one notification, when the adapter is back *and* the internet is verified to actually work (with the time it took); repair-in-progress, offline and failure states show on the menu bar icon instead (spinner / `✓8s` / `⚠︎` / `✕`)
-- 🌍 **62 languages** — UI and logs fully localized, follows your system language, switchable from the menu
+- 🌍 **66 languages** — UI and logs fully localized, follows your system language, switchable from the menu
 - 🪶 **Zero dependencies** — a single app; no daemons, no Homebrew, no elevated privileges
 
 ## Install
@@ -190,7 +190,7 @@ Other menu items:
 | Reset a USB device | Lists all USB devices and software-replugs the one you choose — works for audio interfaces, webcams, drives and docks too |
 | Menu bar icon | Always show / only when there is a problem / hidden (**to bring it back, just open the app again from Applications**) |
 | Open config folder | Reveals the config file, log and language folder in Finder |
-| Language | Switch among 62 languages; the submenu can edit the current language or open the language folder |
+| Language | Switch among 66 languages; the submenu can edit the current language or open the language folder |
 
 ## Right-to-left languages (RTL)
 
@@ -204,7 +204,7 @@ Because language switching is implemented in-app (reading `lang/*.ini`) rather t
 
 ## Localization
 
-**62 languages** ship with the app. The menu lists Chinese and its varieties first, then other languages by code.
+**66 languages** ship with the app. The menu lists Chinese and its varieties first, then other languages by code.
 
 The app follows your system language at startup; you can also switch it from the **Language** menu (the choice is remembered).
 
