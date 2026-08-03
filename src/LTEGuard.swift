@@ -1007,7 +1007,7 @@ final class I18n {
             // 中国少数民族语言
             "bo", "ug", "mn-Mong", "kk", "ko-CN",
             // 邻近与友好国家
-            "ja", "ko", "vi", "th", "km", "my", "ms", "id", "fil",
+            "ja", "ko", "ko-KP", "vi", "th", "km", "my", "ms", "id", "fil",
             "ru", "kk", "uz", "az", "sr", "rw", "sw", "am", "ha",
         ]
         func rank(_ c: String) -> Int { priority.firstIndex(of: c) ?? priority.count }
