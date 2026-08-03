@@ -732,7 +732,7 @@ final class Healer {
 /// 以便与用户手写的内容严格区分——用户手写的行程序永不删除。
 struct PresetCmd {
     let title: String       // 勾选框显示文字
-    let command: String     // 实际命令（不含标记）
+    var command: String     // 实际命令（不含标记）；可变——如提示音预设随选择的声音更新
     let hint: String        // 宽松匹配用的关键字；为空则只做精确匹配
     var tooltip: String = ""
     var pre = false         // true = 写入「发现断联时执行」，false = 「恢复后执行」
@@ -879,12 +879,7 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
         syncing = true
         var lines = target.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
-        let hasTagged = lines.contains { raw in
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            guard line.hasSuffix(Detect.mark) else { return false }
-            let body = String(line.dropLast(Detect.mark.count)).trimmingCharacters(in: .whitespaces)
-            return body == p.command
-        }
+        let hasTagged = lines.contains { Self.taggedMatches($0, p) }
 
         if !hasTagged {
             let entry = "\(p.command)   \(Detect.mark)"
@@ -894,15 +889,42 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
             }
         } else {
             // 只删带标记的行——用户手写的同名行原样保留
-            lines.removeAll { raw in
-                let line = raw.trimmingCharacters(in: .whitespaces)
-                guard line.hasSuffix(Detect.mark) else { return false }
-                let body = String(line.dropLast(Detect.mark.count)).trimmingCharacters(in: .whitespaces)
-                return body == p.command
-            }
+            lines.removeAll { Self.taggedMatches($0, p) }
         }
         target.string = lines.joined(separator: "\n")
         syncing = false
+        refreshBoxes()
+    }
+
+    /// 该行是否为「程序添加的、属于此预设」的行。
+    /// tagged 行是程序自己写的，按 hint 宽松匹配是安全的——
+    /// 这让"命令可变"的预设（如换了声音的提示音）也能被正确识别和取消
+    private static func taggedMatches(_ raw: String, _ p: PresetCmd) -> Bool {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        guard line.hasSuffix(Detect.mark) else { return false }
+        let body = String(line.dropLast(Detect.mark.count)).trimmingCharacters(in: .whitespaces)
+        return body == p.command || (!p.hint.isEmpty && body.contains(p.hint))
+    }
+
+    /// 预设的命令变了（如用户换了提示音）：更新注册表；若该预设当前已勾选
+    /// （文本框里有它的 tagged 行），就地替换为新命令，保持勾选状态
+    func updateCommand(for button: NSButton, to newCommand: String) {
+        guard let idx = boxes.firstIndex(where: { $0.0 === button }) else { return }
+        let old = boxes[idx].1
+        boxes[idx].1.command = newCommand
+        let p = boxes[idx].1
+        let target = tv(for: p)
+        var lines = target.string.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var replaced = false
+        for i in lines.indices where Self.taggedMatches(lines[i], old) {
+            lines[i] = "\(newCommand)   \(Detect.mark)"
+            replaced = true
+        }
+        if replaced {
+            syncing = true
+            target.string = lines.joined(separator: "\n")
+            syncing = false
+        }
         refreshBoxes()
     }
 
@@ -1056,8 +1078,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static var shared: AppDelegate?
     private var statusItem: NSStatusItem!
     private let watcher = WakeWatcher()
-    /// 在「恢复后执行命令」对话框存活期间持有，防止其 target/delegate（弱引用）被提前释放
+    /// 在「唤醒后执行命令」对话框存活期间持有，防止其 target/delegate（弱引用）被提前释放
     private var postCmdEditor: PostCmdEditor?
+    /// 提示音选择器（对话框存活期间有效）
+    private weak var soundPopup: NSPopUpButton?
+    private weak var soundCheckbox: NSButton?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -1452,11 +1477,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // 常用（固定）。「打开网络设置」归断联时执行——第一时间打开面板观察修复过程；
         // 「提示恢复」「验证能否上网」已内建为原生通知，不再作为 shell 预设。
+
+        // 系统提示音：动态枚举，初始选中沿用配置里已勾选的那个（没有则 Glass）
+        let sounds = ((try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds")) ?? [])
+            .filter { $0.hasSuffix(".aiff") }.map { String($0.dropLast(6)) }.sorted()
+        var initialSound = "Glass"
+        for line in cfg.postCmd.split(separator: "\n") {
+            let s = line.trimmingCharacters(in: .whitespaces)
+            if s.hasSuffix(Detect.mark), s.contains("afplay"),
+               let r = s.range(of: "/Sounds/"), let dot = s.range(of: ".aiff") {
+                initialSound = String(s[r.upperBound..<dot.lowerBound]); break
+            }
+        }
+        if !sounds.contains(initialSound) { initialSound = sounds.first ?? "Glass" }
+        func soundCmd(_ name: String) -> String { "afplay /System/Library/Sounds/\(name).aiff" }
+
         let common: [PresetCmd] = [
             PresetCmd(title: T(80),
                       command: Sys.openNetworkPaneCmd,
                       hint: "systempreferences", pre: true),
-            PresetCmd(title: T(83), command: "afplay /System/Library/Sounds/Glass.aiff",
+            PresetCmd(title: T(83), command: soundCmd(initialSound),
                       hint: "afplay"),
             PresetCmd(title: T(92),
                       command: "curl -s -X POST -H 'Content-Type: application/json' -d '{\"text\":\"LTE Guard: \(T(82))\"}' 'PASTE_YOUR_WEBHOOK_URL'",
@@ -1508,7 +1548,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let cb = NSButton(checkboxWithTitle: p.title, target: nil, action: nil)
                 cb.toolTip = p.command
                 editor.register(cb, p)
-                rows.append(cb)
+
+                // 提示音行：勾选框 + 声音下拉框 + ▶ 预览按钮排成一行
+                if p.hint == "afplay" {
+                    let row = NSView()
+                    let popW: CGFloat = 110, playW: CGFloat = 26
+                    cb.frame = NSRect(x: 0, y: 0, width: CGFloat(W) - 24 - popW - playW - 12, height: 18)
+                    let pop = NSPopUpButton(frame: NSRect(x: CGFloat(W) - 24 - popW - playW - 6, y: -3,
+                                                          width: popW, height: 24), pullsDown: false)
+                    pop.addItems(withTitles: sounds)
+                    pop.selectItem(withTitle: initialSound)
+                    pop.font = NSFont.systemFont(ofSize: 11)
+                    pop.target = self
+                    pop.action = #selector(soundChanged(_:))
+                    let play = NSButton(frame: NSRect(x: CGFloat(W) - 24 - playW, y: -3, width: playW, height: 24))
+                    play.bezelStyle = .rounded
+                    play.title = "▶"
+                    play.font = NSFont.systemFont(ofSize: 10)
+                    play.target = self
+                    play.action = #selector(previewSound(_:))
+                    row.addSubview(cb); row.addSubview(pop); row.addSubview(play)
+                    self.soundPopup = pop
+                    self.soundCheckbox = cb
+                    rows.append(row)
+                } else {
+                    rows.append(cb)
+                }
             }
         }
         let rowH = 22
@@ -1542,6 +1607,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cfg.postCmd = clean(editor.currentPost)
         cfg.save()
         notify(T(55))
+    }
+
+    /// 用户换了提示音：更新预设命令；若已勾选，文本框里的命令行就地替换
+    @objc private func soundChanged(_ sender: NSPopUpButton) {
+        guard let name = sender.titleOfSelectedItem, let cb = soundCheckbox else { return }
+        let cmd = "afplay /System/Library/Sounds/\(name).aiff"
+        cb.toolTip = cmd
+        postCmdEditor?.updateCommand(for: cb, to: cmd)
+    }
+
+    /// 预览当前选中的提示音
+    @objc private func previewSound(_ sender: NSButton) {
+        guard let name = soundPopup?.titleOfSelectedItem else { return }
+        Sys.run("afplay '/System/Library/Sounds/\(name).aiff'", wait: false)
     }
 
     /// 对任意 USB 设备执行软件拔插。用于音频接口、摄像头、外置硬盘、扩展坞等
