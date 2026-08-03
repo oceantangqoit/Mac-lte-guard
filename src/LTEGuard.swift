@@ -2055,6 +2055,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // ── 常用动作（一级，最多三项）──
         m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
         m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
+        m.addItem(usbResetItem())     // 手动救任意 USB 设备，与上面两项同属「对设备动手」
+        m.addItem(.separator())
         m.addItem(item(T(53), #selector(editPostCmdGated), symbol: "terminal"))
         m.addItem(.separator())
 
@@ -2087,22 +2089,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         toolMenu.addItem(item(T(12), #selector(openLogGated), symbol: "doc.text"))
         toolMenu.addItem(item(T(68), #selector(openConfigFolderGated), symbol: "folder"))
         toolMenu.addItem(item(T(29), #selector(showDiagnosis), symbol: "stethoscope"))
-        // 重置任意 USB 设备（音频接口、摄像头、硬盘、扩展坞等同样会睡眠后假死）
-        let usbItem = item(T(75), nil, symbol: "cable.connector")
-        let usbMenu = sub()
-        let hint = NSMenuItem(title: T(76), action: nil, keyEquivalent: "")
-        hint.isEnabled = false
-        usbMenu.addItem(hint)
-        usbMenu.addItem(.separator())
-        for (vid, pid, name) in Sys.usbDevices() {
-            let di = NSMenuItem(title: "\(name)  (\(vid):\(pid))",
-                                action: #selector(resetUSBDevice(_:)), keyEquivalent: "")
-            di.target = self
-            di.representedObject = "\(vid) \(pid) \(name)"
-            usbMenu.addItem(di)
-        }
-        usbItem.submenu = usbMenu
-        toolMenu.addItem(usbItem)
         toolItem.submenu = toolMenu
         m.addItem(toolItem)
 
@@ -2122,6 +2108,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
         m.addItem(item(T(14), #selector(quitGated), symbol: "power"))
         statusItem.menu = m
+    }
+
+    /// 「重置 USB 设备」子菜单：列出当前所有 USB 设备，选一个做软件拔插
+    private func usbResetItem() -> NSMenuItem {
+        let usbItem = item(T(75), nil, symbol: "cable.connector")
+        let usbMenu = sub()
+        let hint = NSMenuItem(title: T(76), action: nil, keyEquivalent: "")
+        hint.isEnabled = false
+        usbMenu.addItem(hint)
+        usbMenu.addItem(.separator())
+        for (vid, pid, name) in Sys.usbDevices() {
+            let di = NSMenuItem(title: "\(name)  (\(vid):\(pid))",
+                                action: #selector(resetUSBDevice(_:)), keyEquivalent: "")
+            di.target = self
+            di.representedObject = "\(vid) \(pid) \(name)"
+            usbMenu.addItem(di)
+        }
+        usbItem.submenu = usbMenu
+        return usbItem
     }
 
     /// 统一的子菜单构造（RTL 语言下菜单方向也要跟着翻转）
