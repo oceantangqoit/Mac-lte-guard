@@ -1083,6 +1083,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// 提示音选择器（对话框存活期间有效）
     private weak var soundPopup: NSPopUpButton?
     private weak var soundCheckbox: NSButton?
+    /// 预览播放器。必须持有——局部变量会在函数返回时释放，声音戛然而止
+    private var previewPlayer: NSSound?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -1617,10 +1619,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         postCmdEditor?.updateCommand(for: cb, to: cmd)
     }
 
-    /// 预览当前选中的提示音
+    /// 预览当前选中的提示音。用 NSSound 而非 afplay 子进程——
+    /// 模态对话框期间照常工作，也不依赖 shell
     @objc private func previewSound(_ sender: NSButton) {
         guard let name = soundPopup?.titleOfSelectedItem else { return }
-        Sys.run("afplay '/System/Library/Sounds/\(name).aiff'", wait: false)
+        previewPlayer?.stop()
+        previewPlayer = NSSound(contentsOfFile: "/System/Library/Sounds/\(name).aiff", byReference: true)
+        previewPlayer?.play()
     }
 
     /// 对任意 USB 设备执行软件拔插。用于音频接口、摄像头、外置硬盘、扩展坞等
