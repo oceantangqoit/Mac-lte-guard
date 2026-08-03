@@ -1343,10 +1343,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let forceShowSeconds: TimeInterval = 20
 
     static func main() {
-        // 命令行拍照模式：LTEGuard --snap [标签]，拍完打印路径退出（不进 UI）
+        // 命令行拍照模式：LTEGuard --snap [标签]，拍完打印路径退出（不进 UI，
+        // 短命进程，不参与下面的单实例判定）
         if let i = CommandLine.arguments.firstIndex(of: "--snap") {
             let tag = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "manual"
             CameraSnap.runCLI(tag: tag)
+        }
+
+        // 单实例保护：覆盖安装时 LaunchAgent 保活重启与安装器/手动打开会各拉起
+        // 一个进程，菜单栏出现两个图标。后启动者（PID 更大）发现先来者健在就
+        // 静默退出；同时启动的竞态也因 PID 比较只留一个。
+        let bid = Bundle.main.bundleIdentifier ?? "com.oceantang.lteguard"
+        let own = ProcessInfo.processInfo.processIdentifier
+        if NSRunningApplication.runningApplications(withBundleIdentifier: bid)
+            .contains(where: { $0.processIdentifier != own && $0.processIdentifier < own && !$0.isTerminated }) {
+            exit(0)
         }
 
         let app = NSApplication.shared
