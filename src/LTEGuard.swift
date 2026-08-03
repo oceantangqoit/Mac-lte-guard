@@ -58,6 +58,89 @@ enum Auth {
     }
 }
 
+// MARK: - 内建 Webhook 发送器
+// 睡眠通报、签约通报等场景来不及/不适合走 shell 预设，由程序直接发送。
+// 每次发送记录成败；失败入待补队列（outbox），网络恢复后自动补发并注明原时间。
+enum WebhookSender {
+    static var outboxPath: String { I18n.appSupportDir + "/webhook-outbox.tsv" }
+
+    /// 用户配置的 webhook（平台，地址）；未配置返回 nil
+    static func configured() -> (Int, String)? {
+        let (p, u, _) = AppDelegate.parseWebhook(from: Config.load().postCmd)
+        return u.isEmpty ? nil : (p, u)
+    }
+
+    private static func request(platform: Int, url: String, text: String) -> URLRequest? {
+        let enc = text.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? text
+        let isGET = platform == 4 || platform == 7   // Telegram / WhatsApp(CallMeBot)
+        guard let u = URL(string: isGET
+            ? url + (url.contains("?") ? "&" : "?") + "text=" + enc
+            : url) else { return nil }
+        var req = URLRequest(url: u, timeoutInterval: 3)
+        req.httpMethod = isGET ? "GET" : "POST"
+        switch platform {
+        case 4, 7: break                                  // GET，参数已在 URL
+        case 5:  req.httpBody = text.data(using: .utf8)   // ntfy 纯文本
+        case 9:  req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                 req.httpBody = "title=LTE%20Guard&desp=\(enc)".data(using: .utf8)   // Server酱
+        case 11: req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                 req.httpBody = "message=\(enc)".data(using: .utf8)                  // Pushover
+        default:
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: Any]
+            switch platform {
+            case 0:  body = ["msgtype": "text", "text": ["content": text]]
+            case 1:  body = ["msg_type": "text", "content": ["text": text]]
+            case 3:  body = ["content": text]
+            case 6:  body = ["value1": text]
+            case 8:  body = ["title": "LTE Guard", "body": text]                     // Bark
+            case 10: body = ["title": "LTE Guard", "message": text, "priority": 5]   // Gotify
+            case 12: body = ["msgtype": "m.text", "body": text]                      // Matrix
+            default: body = ["text": text]
+            }
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        }
+        return req
+    }
+
+    /// 发送文本。失败且 queueOnFail 时写入待补队列。sync=true 同步等待（≤timeout）
+    static func send(_ text: String, sync: Bool = false, queueOnFail: Bool = true) {
+        guard let (p, u) = configured(), let req = request(platform: p, url: u, text: text) else { return }
+        let sem = sync ? DispatchSemaphore(value: 0) : nil
+        URLSession.shared.dataTask(with: req) { _, resp, err in
+            let ok = err == nil && (200..<300).contains((resp as? HTTPURLResponse)?.statusCode ?? 0)
+            if ok {
+                Sys.log(T(152))
+            } else {
+                Sys.log(T(153, err?.localizedDescription ?? "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)"))
+                if queueOnFail {
+                    let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                    let line = "\(f.string(from: Date()))\t\(text.replacingOccurrences(of: "\n", with: " "))\n"
+                    if let h = FileHandle(forWritingAtPath: outboxPath) {
+                        h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); h.closeFile()
+                    } else {
+                        try? line.write(toFile: outboxPath, atomically: true, encoding: .utf8)
+                    }
+                }
+            }
+            sem?.signal()
+        }.resume()
+        _ = sem?.wait(timeout: .now() + 3.5)
+    }
+
+    /// 网络恢复后补发队列中的消息，逐条注明原发送时间；仍失败的保留待下次
+    static func flushOutbox() {
+        guard let text = try? String(contentsOfFile: outboxPath, encoding: .utf8),
+              !text.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: outboxPath)
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            send("[\(T(151, parts[0]))] \(parts[1])", sync: false, queueOnFail: true)
+        }
+    }
+}
+
 // MARK: - 签约存档
 // 责任移交/风险确认属于"签约"：验证即签名，存档即立据。
 // 每次签约在配置目录 agreement/ 下留一份可读文本，内容固定中英双语，
@@ -93,6 +176,11 @@ enum Agreement {
         let name = "\(stamp.string(from: now))_\(kind)_\(String(safe)).txt"
         try? text.write(toFile: dir + "/" + name, atomically: true, encoding: .utf8)
         Sys.log(T(135, name))
+        // 签约现场：留影入门卫室（已授权时）+ webhook 通报，证据链闭环
+        if CameraSnap.authorized {
+            DispatchQueue.main.async { CameraSnap.take(tag: "agreement") { _ in } }
+        }
+        WebhookSender.send(T(148, "\(kind) · \(subject)"))
     }
 
     /// 是否已签署过某类协议（如拍照协议签一次即可，不重复打扰）
@@ -467,7 +555,7 @@ enum Sys {
     /// 执行用户命令：含 --snap 的行走 App 进程内拍照（快，不起第二实例），
     /// 其余合并交给 shell。用户手写的 $(… --snap) 组合行含命令替换符，
     /// 不拆——整行交 shell 由 CLI 模式接住
-    static func runUserCmds(_ text: String, wait: Bool) {
+    static func runUserCmds(_ text: String, wait: Bool, prefix: String = "") {
         var shellLines: [String] = []
         for raw in resolveUserCmds(text).split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(raw)
@@ -479,7 +567,7 @@ enum Sys {
                 shellLines.append(line)
             }
         }
-        if !shellLines.isEmpty { run(shellLines.joined(separator: "\n"), wait: wait) }
+        if !shellLines.isEmpty { run(prefix + shellLines.joined(separator: "\n"), wait: wait) }
     }
 
     /// 一次性迁移：配置与日志的真身从家目录隐藏文件搬到标准
@@ -838,6 +926,8 @@ final class Healer {
     private let cooldown: TimeInterval = 15
     /// 串行队列保护冷却表与修复计数；修复本体并行执行
     private let q = DispatchQueue(label: "lteguard.healer", qos: .utility)
+    /// 本轮各对象的修复详情（q 上读写），拼成 LTE_INFO 注入「恢复后命令」
+    private var infoParts: [String] = []
 
     /// 有修复在进行中（图标显示用，主线程访问）
     private(set) var healing = false
@@ -871,6 +961,7 @@ final class Healer {
                         Notifier.post(T(119))
                         AppDelegate.shared?.flashResult("✓")
                     }
+                    WebhookSender.flushOutbox()   // 网络在线：顺带补发滞留消息
                     return
                 }
                 due = sick
@@ -890,6 +981,7 @@ final class Healer {
             Thread.sleep(forTimeInterval: 1)
 
             // 各对象并行修复；全部结束且至少一个成功后，执行一次「恢复后命令」
+            self.infoParts.removeAll()
             let group = DispatchGroup()
             var anyOK = false
             for t in due {
@@ -900,7 +992,18 @@ final class Healer {
                 }
             }
             group.notify(queue: self.q) {
-                if anyOK && !cfg.postCmd.isEmpty { Sys.runUserCmds(cfg.postCmd, wait: true) }
+                if anyOK {
+                    // 注入 LTE_INFO：webhook 等命令引用它获得详尽内容
+                    let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                    let info = (self.infoParts + [f.string(from: Date())])
+                        .joined(separator: " ‖ ")
+                        .replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "$", with: "")
+                        .replacingOccurrences(of: "`", with: "")
+                    if !cfg.postCmd.isEmpty {
+                        Sys.runUserCmds(cfg.postCmd, wait: true, prefix: "LTE_INFO=\"\(info)\"; ")
+                    }
+                    WebhookSender.flushOutbox()   // 网络已恢复：补发滞留消息
+                }
             }
         }
     }
@@ -948,6 +1051,8 @@ final class Healer {
 
                     // ── 内建联网验证：绑定该接口直测外网，结果进通知+图标 ──
                     let online = Sys.run("curl -s -m 5 --interface \(t.dev) -o /dev/null -w '%{http_code}' http://captive.apple.com")
+                    let part = T(149, t.display, secs, rTxt, online == "200" ? T(35) : T(36))
+                    self.q.async { self.infoParts.append(part) }
                     if online == "200" {
                         Notifier.post(T(105, t.display, secs))
                         AppDelegate.shared?.flashResult("✓\(secs)s")
@@ -1061,6 +1166,8 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
     /// 勾选前的放行检查（如摄像头权限）。返回 false 则本次不勾；
     /// 检查方可在异步授权成功后再 performClick 该按钮补勾
     var willEnable: ((PresetCmd, NSButton) -> Bool)?
+    /// 文本或勾选发生任何变化后的回调（如刷新「图文」可用性）
+    var onChange: (() -> Void)?
 
     init(preTV: NSTextView, postTV: NSTextView) {
         self.preTV = preTV
@@ -1143,6 +1250,7 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
         target.string = lines.joined(separator: "\n")
         syncing = false
         refreshBoxes()
+        onChange?()
     }
 
     /// 该行是否为「程序添加的、属于此预设」的行。
@@ -1178,7 +1286,7 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
     }
 
     /// 用户手动编辑文本 → 勾选框状态跟着变
-    func textDidChange(_ notification: Notification) { refreshBoxes() }
+    func textDidChange(_ notification: Notification) { refreshBoxes(); onChange?() }
 }
 
 // MARK: - 开机自启
@@ -1308,7 +1416,15 @@ final class WakeWatcher {
             let me = Unmanaged<WakeWatcher>.fromOpaque(refcon).takeUnretainedValue()
             switch msgType {
             case kMsgCanSleep, kMsgWillSleep:
-                if msgType == kMsgWillSleep { Sys.log(T(118)) }   // 真正入睡才记，询问阶段不记
+                if msgType == kMsgWillSleep {
+                    Sys.log(T(118))   // 真正入睡才记，询问阶段不记
+                    // 睡眠通报：此刻网络还活着，同步抢发（≤3.5s，配置了 webhook 才发；
+                    // 失败会入待补队列，唤醒恢复后自动补发并注明原时间）
+                    if WebhookSender.configured() != nil {
+                        let lid = me.lastClamshell == true ? T(142) : T(150)
+                        WebhookSender.send(T(147, lid), sync: true)
+                    }
+                }
                 IOAllowPowerChange(me.rootPort, Int(bitPattern: msgArg))
             case kMsgPoweredOn:
                 // 唤醒即修，不做预检（详见 Healer 注释）。
@@ -1810,6 +1926,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let editor = PostCmdEditor(preTV: preTV, postTV: postTV)
         // 拍照预设的权限门：已授权放行；未询问过→系统弹窗，允许后自动补勾；
         // 曾被拒→提示并打开系统设置的摄像头页（系统不会二次弹窗）
+        editor.onChange = { [weak self] in self?.webhookRichRefresh() }
         editor.willEnable = { [weak self] p, btn in
             // 相机门：拍照预设与「图文」webhook（命令里都含 --snap）都要过
             guard p.command.contains("--snap") else { return true }
@@ -2027,8 +2144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             rich.addItems(withTitles: [T(145), T(146)])
             rich.font = NSFont.systemFont(ofSize: 11)
             rich.autoenablesItems = false
-            rich.item(at: 1)?.isEnabled = AppDelegate.webhookRichCapable.contains(whInit.0)
-            rich.selectItem(at: whInit.2 && AppDelegate.webhookRichCapable.contains(whInit.0) ? 1 : 0)
+            let snapOn = (cfg.preCmd + cfg.postCmd).contains("--snap")
+            let richOK = AppDelegate.webhookRichCapable.contains(whInit.0) && snapOn
+            rich.item(at: 1)?.isEnabled = richOK
+            rich.selectItem(at: whInit.2 && richOK ? 1 : 0)
             rich.target = self
             rich.action = #selector(webhookPlatformChanged(_:))
             // ? ：打开当前平台的官方申请文档，不让用户自己去搜
@@ -2076,58 +2195,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// 平台顺序与 popup 一致；同格式平台已合并。
     /// 计算属性——切换界面语言后平台名跟着变
     static var webhookPlatforms: [String] { [
-        T(120),                              // 企业微信 / 钉钉
-        T(121),                              // 飞书 (Lark)
-        "Slack / Teams / Google Chat",
-        "Discord",
-        "Telegram",
-        "ntfy.sh",
-        "IFTTT",
-        T(122),                              // 自定义
+        T(120),                              // 0 企业微信 / 钉钉
+        T(121),                              // 1 飞书 (Lark)
+        "Slack / Teams / Google Chat",       // 2 （Mattermost/Rocket.Chat 同格式）
+        "Discord",                           // 3
+        "Telegram",                          // 4
+        "ntfy.sh",                           // 5
+        "IFTTT",                             // 6
+        "WhatsApp (CallMeBot)",              // 7
+        "Bark",                              // 8
+        "Server酱",                          // 9
+        "Gotify",                            // 10
+        "Pushover",                          // 11
+        "Matrix",                            // 12
+        T(122),                              // 13 自定义
     ] }
 
     /// 支持「图文」的平台：企业微信(base64) / Discord(附件) / Telegram(sendPhoto) / ntfy(PUT)
     static let webhookRichCapable: Set<Int> = [0, 3, 4, 5]
 
+    /// 恢复消息正文：Healer 执行「恢复后命令」前会注入 shell 变量 LTE_INFO
+    ///（设备/用时/触发原因/联网结果/时间），命令里引用它使内容详尽；
+    /// 单独在终端跑时回退为简单文案。shell 双引号内展开。
+    private static var msgVar: String { "LTE Guard: ${LTE_INFO:-\(T(82))}" }
+
     static func webhookCmd(platform: Int, url: String, rich: Bool = false) -> String {
         let u = url.isEmpty ? "PASTE_YOUR_WEBHOOK_URL" : url
-        let msg = "LTE Guard: \(T(82))"
-        let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
-            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
-        // 图文＝先拍一张门卫室现场照，再随消息推送（仅支持的平台）
-        let snap = "IMG=\"$('\(exe)' --snap webhook)\"; "
+        let m = msgVar
+
+        // 图文＝复用本次唤醒已拍的两张现场照（断联时 wake / 恢复后 restored），
+        // 不再额外拍。尺寸远低于各平台上限（企微 base64≤2MB、TG≤10MB、
+        // Discord≤8MB、ntfy≤15MB；实拍 40-190KB）。照片缺失时仅发文本。
+        let gh = CameraSnap.dir
+        let pick = "GH=\"\(gh)\"; IMG1=$(ls -t \"$GH\"/*_wake.jpg 2>/dev/null | head -1); IMG2=$(ls -t \"$GH\"/*_restored.jpg 2>/dev/null | head -1); "
 
         if rich && Self.webhookRichCapable.contains(platform) {
             switch platform {
-            case 0:   // 企业微信：文本一条 + base64 图片一条
-                let text = "curl -s -X POST -H 'Content-Type: application/json' -d '{\"msgtype\":\"text\",\"text\":{\"content\":\"\(msg)\"}}' '\(u)'"
-                let img = "B64=$(base64 -i \"$IMG\"); MD5=$(md5 -q \"$IMG\"); curl -s -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"image\\\",\\\"image\\\":{\\\"base64\\\":\\\"$B64\\\",\\\"md5\\\":\\\"$MD5\\\"}}\" '\(u)'"
-                return snap + text + "; " + img
-            case 3:   // Discord：multipart 附件 + 文字
-                return snap + "curl -s -F 'payload_json={\"content\":\"\(msg)\"}' -F \"file1=@$IMG\" '\(u)'"
-            case 4:   // Telegram：sendPhoto + caption（chat_id 沿用地址里的 query）
+            case 0:   // 企业微信：详尽文本一条 + 两张 base64 图片
+                let text = "curl -s -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"text\\\",\\\"text\\\":{\\\"content\\\":\\\"\(m)\\\"}}\" '\(u)'"
+                let imgFn = "snd(){ [ -f \"$1\" ] || return; B64=$(base64 -i \"$1\"); MD5=$(md5 -q \"$1\"); curl -s -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"image\\\",\\\"image\\\":{\\\"base64\\\":\\\"$B64\\\",\\\"md5\\\":\\\"$MD5\\\"}}\" '\(u)'; }; snd \"$IMG1\"; snd \"$IMG2\""
+                return pick + text + "; " + imgFn
+            case 3:   // Discord：两张附件 + 详尽文字（缺图时字段为空并不影响文本）
+                return pick + "curl -s -F \"payload_json={\\\"content\\\":\\\"\(m)\\\"}\" ${IMG1:+-F \"file1=@$IMG1\"} ${IMG2:+-F \"file2=@$IMG2\"} '\(u)'"
+            case 4:   // Telegram：两次 sendPhoto，caption 带详尽信息
                 let photoURL = u.replacingOccurrences(of: "sendMessage", with: "sendPhoto")
-                return snap + "curl -s -F \"photo=@$IMG\" -F 'caption=\(msg)' '\(photoURL)'"
-            default:  // ntfy：文本一条 + PUT 图片一条
-                return snap + "curl -s -d '\(msg)' '\(u)'; curl -s -T \"$IMG\" -H 'X-Title: LTE Guard' '\(u)'"
+                return pick + "snd(){ [ -f \"$1\" ] || return; curl -s -F \"photo=@$1\" -F \"caption=\(m)\" '\(photoURL)'; }; snd \"$IMG1\"; snd \"$IMG2\""
+            default:  // ntfy：详尽文本一条 + 两张 PUT
+                return pick + "curl -s -d \"\(m)\" '\(u)'; snd(){ [ -f \"$1\" ] || return; curl -s -T \"$1\" -H 'X-Title: LTE Guard' '\(u)'; }; snd \"$IMG1\"; snd \"$IMG2\""
             }
         }
 
         switch platform {
         case 4:   // Telegram Bot API：地址需含 bot<token>/sendMessage?chat_id=…
-            return "curl -s -G '\(u)' --data-urlencode 'text=\(msg)'"
+            return "curl -s -G '\(u)' --data-urlencode \"text=\(m)\""
         case 5:   // ntfy.sh：纯文本 POST 到 topic 地址
-            return "curl -s -d '\(msg)' '\(u)'"
+            return "curl -s -d \"\(m)\" '\(u)'"
+        case 7:   // WhatsApp（CallMeBot：地址含 phone 与 apikey）
+            return "curl -s -G '\(u)' --data-urlencode \"text=\(m)\""
+        case 9:   // Server酱（sctapi.ftqq.com/KEY.send）
+            return "curl -s -d 'title=LTE Guard' --data-urlencode \"desp=\(m)\" '\(u)'"
+        case 11:  // Pushover（地址 query 携带 token 与 user）
+            return "curl -s --data-urlencode \"message=\(m)\" '\(u)'"
         default:
             let json: String
             switch platform {
-            case 0: json = "{\"msgtype\":\"text\",\"text\":{\"content\":\"\(msg)\"}}"
-            case 1: json = "{\"msg_type\":\"text\",\"content\":{\"text\":\"\(msg)\"}}"
-            case 3: json = "{\"content\":\"\(msg)\"}"
-            case 6: json = "{\"value1\":\"\(msg)\"}"
-            default: json = "{\"text\":\"\(msg)\"}"   // Slack/Teams/GChat 与自定义
+            case 0:  json = "{\\\"msgtype\\\":\\\"text\\\",\\\"text\\\":{\\\"content\\\":\\\"\(m)\\\"}}"
+            case 1:  json = "{\\\"msg_type\\\":\\\"text\\\",\\\"content\\\":{\\\"text\\\":\\\"\(m)\\\"}}"
+            case 3:  json = "{\\\"content\\\":\\\"\(m)\\\"}"
+            case 6:  json = "{\\\"value1\\\":\\\"\(m)\\\"}"
+            case 8:  json = "{\\\"title\\\":\\\"LTE Guard\\\",\\\"body\\\":\\\"\(m)\\\"}"          // Bark
+            case 10: json = "{\\\"title\\\":\\\"LTE Guard\\\",\\\"message\\\":\\\"\(m)\\\",\\\"priority\\\":5}"  // Gotify
+            case 12: json = "{\\\"msgtype\\\":\\\"m.text\\\",\\\"body\\\":\\\"\(m)\\\"}"           // Matrix
+            default: json = "{\\\"text\\\":\\\"\(m)\\\"}"   // Slack/Teams/GChat/Mattermost 与自定义
             }
-            return "curl -s -X POST -H 'Content-Type: application/json' -d '\(json)' '\(u)'"
+            return "curl -s -X POST -H 'Content-Type: application/json' -d \"\(json)\" '\(u)'"
         }
     }
 
@@ -2136,17 +2277,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for raw in postCmd.split(separator: "\n") {
             let s = raw.trimmingCharacters(in: .whitespaces)
             guard s.hasSuffix(Detect.mark),
-                  s.hasPrefix("curl -s") || s.contains("--snap webhook") else { continue }
-            let rich = s.contains("--snap webhook")
+                  s.hasPrefix("curl -s") || s.hasPrefix("GH=") || s.contains("--snap webhook") else { continue }
+            let rich = s.contains("_wake.jpg") || s.contains("--snap webhook")
             let platform: Int
-            if s.contains("msgtype")            { platform = 0 }
-            else if s.contains("msg_type")      { platform = 1 }
-            else if s.contains("--data-urlencode") { platform = 4 }
-            else if s.contains("sendPhoto")     { platform = 4 }
-            else if s.contains("payload_json") || s.contains("\"content\":") { platform = 3 }
-            else if s.contains("\"value1\":")   { platform = 6 }
-            else if s.contains("\"text\":")     { platform = 2 }
-            else                                 { platform = 5 }   // 纯文本/PUT = ntfy
+            if s.contains("callmebot") || s.contains("whatsapp") { platform = 7 }
+            else if s.contains("\"desp=") || s.contains("ftqq")  { platform = 9 }
+            else if s.contains("\"message=")                     { platform = 11 }  // Pushover
+            else if s.contains("m.text")                         { platform = 12 }  // Matrix
+            else if s.contains("\\\"body\\\"")                   { platform = 8 }   // Bark
+            else if s.contains("\\\"priority\\\"")               { platform = 10 }  // Gotify
+            else if s.contains("msgtype")                        { platform = 0 }
+            else if s.contains("msg_type")                       { platform = 1 }
+            else if s.contains("sendPhoto") || s.contains("--data-urlencode \"text=") || s.contains("--data-urlencode 'text=") { platform = 4 }
+            else if s.contains("payload_json") || s.contains("\\\"content\\\"") || s.contains("\"content\":") { platform = 3 }
+            else if s.contains("value1")                         { platform = 6 }
+            else if s.contains("\\\"text\\\"") || s.contains("\"text\":") { platform = 2 }
+            else                                                  { platform = 5 }   // 纯文本/PUT = ntfy
             var url = ""
             if let r = s.range(of: "'http", options: .backwards),
                let end = s.range(of: "'", range: r.upperBound..<s.endIndex) {
@@ -2171,6 +2317,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case 4: return ["https://core.telegram.org/bots#how-do-i-create-a-bot"]
         case 5: return ["https://docs.ntfy.sh/"]
         case 6: return ["https://ifttt.com/maker_webhooks"]
+        case 7: return ["https://www.callmebot.com/blog/free-api-whatsapp-messages/"]
+        case 8: return ["https://bark.day.app/"]
+        case 9: return ["https://sct.ftqq.com/"]
+        case 10: return ["https://gotify.net/docs/pushmsg"]
+        case 11: return ["https://pushover.net/api"]
+        case 12: return ["https://spec.matrix.org/latest/client-server-api/#events"]
         default: return ["https://github.com/oceantangqoit/Mac-lte-guard#readme"]
         }
     }
@@ -2183,14 +2335,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// 图文可用性 = 平台支持 且 拍照功能已勾选（图文复用现场照，没拍照就没图可推）
+    private var webhookRichAllowed: Bool {
+        let platform = webhookPopup?.indexOfSelectedItem ?? 0
+        let snapOn = (postCmdEditor?.currentPre.contains("--snap") ?? false)
+                  || (postCmdEditor?.currentPost.contains("--snap") ?? false)
+        return AppDelegate.webhookRichCapable.contains(platform) && snapOn
+    }
+
+    /// 拍照勾选/文本变化后刷新「图文」可用性；不可用时自动回落文本
+    func webhookRichRefresh() {
+        guard let rp = webhookRichPop else { return }
+        let ok = webhookRichAllowed
+        rp.item(at: 1)?.isEnabled = ok
+        if !ok, rp.indexOfSelectedItem == 1 {
+            rp.selectItem(at: 0)
+            webhookUpdate()
+        }
+    }
+
     /// 平台/地址/类别变化 → 重新生成命令；若已勾选，文本框中的行就地替换。
-    /// 平台不支持图文时禁用该项并自动回落到文本
+    /// 图文不可用时禁用该项并自动回落到文本
     private func webhookUpdate() {
         guard let cb = webhookCheckbox else { return }
         let platform = webhookPopup?.indexOfSelectedItem ?? 0
-        let capable = AppDelegate.webhookRichCapable.contains(platform)
-        webhookRichPop?.item(at: 1)?.isEnabled = capable
-        if !capable, webhookRichPop?.indexOfSelectedItem == 1 { webhookRichPop?.selectItem(at: 0) }
+        let ok = webhookRichAllowed
+        webhookRichPop?.item(at: 1)?.isEnabled = ok
+        if !ok, webhookRichPop?.indexOfSelectedItem == 1 { webhookRichPop?.selectItem(at: 0) }
         let rich = webhookRichPop?.indexOfSelectedItem == 1
         let url = webhookField?.stringValue.trimmingCharacters(in: .whitespaces) ?? ""
         let cmd = AppDelegate.webhookCmd(platform: platform, url: url, rich: rich)
@@ -2486,7 +2657,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // ── 敏感操作门禁（受「敏感操作需要验证」开关控制）──
     @objc func editPostCmdGated()    { Auth.gate { [weak self] in self?.editPostCmd() } }
-    @objc func quitGated()           { Auth.gate { NSApp.terminate(nil) } }
+    @objc func quitGated() {
+        Auth.gate {
+            // 退出守护前留一张（拍照功能开启时）：谁关的门卫，门卫先拍谁
+            let cfg = Config.load()
+            if CameraSnap.authorized, (cfg.preCmd + cfg.postCmd).contains("--snap") {
+                let sem = DispatchSemaphore(value: 0)
+                CameraSnap.take(tag: "quit") { _ in sem.signal() }
+                DispatchQueue.global().async {
+                    _ = sem.wait(timeout: .now() + 2.5)
+                    DispatchQueue.main.async { NSApp.terminate(nil) }
+                }
+            } else {
+                NSApp.terminate(nil)
+            }
+        }
+    }
     @objc func openConfigFolderGated() { Auth.gate { [weak self] in self?.openConfigFolder() } }
     @objc func openLogGated()        { Auth.gate { [weak self] in self?.openLog() } }
 
