@@ -5,6 +5,86 @@ import IOKit
 import IOKit.pwr_mgt
 import IOKit.usb
 import UserNotifications
+import AVFoundation
+
+// MARK: - 门卫室（断联/恢复时拍照留档）
+
+/// 拍照核心，两条触发路径共用：
+/// - App 进程内：Healer 执行 pre/post 命令时拦截含 --snap 的行，直接调 take()（快，无第二进程）
+/// - 命令行：`LTEGuard --snap [标签]` 第二实例拍完把照片路径打到 stdout 后退出——
+///   供用户 shell 组合，如 curl -T "$(… --snap)" 'ntfy地址' 把照片推到手机（webhook 接口）
+enum CameraSnap {
+    static var dir: String { I18n.appSupportDir + "/门卫室" }
+
+    static var authorized: Bool {
+        AVCaptureDevice.authorizationStatus(for: .video) == .authorized
+    }
+
+    /// 拍一张存进门卫室，文件名 = 时间戳_标签.jpg。完成回调带路径（失败为 nil）
+    static func take(tag: String, completion: @escaping (String?) -> Void) {
+        guard authorized else { completion(nil); return }
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        let session = AVCaptureSession()
+        session.sessionPreset = .photo
+        guard let cam = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: cam),
+              session.canAddInput(input) else { completion(nil); return }
+        session.addInput(input)
+        let output = AVCapturePhotoOutput()
+        guard session.canAddOutput(output) else { completion(nil); return }
+        session.addOutput(output)
+        session.startRunning()
+
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let path = "\(dir)/\(f.string(from: Date()))_\(tag).jpg"
+
+        // 等曝光/白平衡稳定再拍，否则常是一张全黑
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.7) {
+            let delegate = SnapDelegate { data in
+                session.stopRunning()
+                if let d = data, (try? d.write(to: URL(fileURLWithPath: path))) != nil {
+                    Sys.log(T(127, path))
+                    completion(path)
+                } else {
+                    completion(nil)
+                }
+            }
+            snapDelegateKeeper = delegate   // 持有到回调完成
+            output.capturePhoto(with: AVCapturePhotoSettings(), delegate: delegate)
+        }
+    }
+
+    /// 命令行模式：同步等待拍照完成，打印路径。photo 权限未授权时先请求（会弹系统框）
+    static func runCLI(tag: String) -> Never {
+        let sem = DispatchSemaphore(value: 0)
+        var result: String?
+        AVCaptureDevice.requestAccess(for: .video) { ok in
+            guard ok else { sem.signal(); return }
+            DispatchQueue.main.async {
+                take(tag: tag) { p in result = p; sem.signal() }
+            }
+        }
+        // 主线程跑 RunLoop 让 AVFoundation 回调得以派发，后台线程等结果
+        DispatchQueue.global().async {
+            _ = sem.wait(timeout: .now() + 15)
+            if let p = result { print(p); exit(0) } else { exit(1) }
+        }
+        RunLoop.main.run()
+        exit(1)
+    }
+}
+
+private var snapDelegateKeeper: AnyObject?
+
+private final class SnapDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+    private let done: (Data?) -> Void
+    init(_ done: @escaping (Data?) -> Void) { self.done = done }
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        done(error == nil ? photo.fileDataRepresentation() : nil)
+        snapDelegateKeeper = nil
+    }
+}
 
 // MARK: - 原生通知
 // osascript 的 display notification 在现代 macOS 上会被静默丢弃
@@ -260,6 +340,24 @@ enum Sys {
                 isNetworkPaneCmd(String(line)) ? openNetworkPaneCmd : String(line)
             }
             .joined(separator: "\n")
+    }
+
+    /// 执行用户命令：含 --snap 的行走 App 进程内拍照（快，不起第二实例），
+    /// 其余合并交给 shell。用户手写的 $(… --snap) 组合行含命令替换符，
+    /// 不拆——整行交 shell 由 CLI 模式接住
+    static func runUserCmds(_ text: String, wait: Bool) {
+        var shellLines: [String] = []
+        for raw in resolveUserCmds(text).split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(raw)
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.contains("--snap") && !t.contains("$(") {
+                let tag = t.contains("restored") ? "restored" : (t.contains("wake") ? "wake" : "snap")
+                DispatchQueue.main.async { CameraSnap.take(tag: tag) { _ in } }
+            } else if !t.isEmpty {
+                shellLines.append(line)
+            }
+        }
+        if !shellLines.isEmpty { run(shellLines.joined(separator: "\n"), wait: wait) }
     }
 
     /// 一次性迁移：配置与日志的真身从家目录隐藏文件搬到标准
@@ -655,7 +753,7 @@ final class Healer {
 
             // ── 「断联时命令」第一时间抢跑（如打开网络面板——它冷启动要 2-4 秒，
             //    必须赶在拔插前开跑，用户才能看到从断联到恢复的全过程）──
-            if !cfg.preCmd.isEmpty { Sys.run(Sys.resolveUserCmds(cfg.preCmd), wait: false) }
+            if !cfg.preCmd.isEmpty { Sys.runUserCmds(cfg.preCmd, wait: false) }
             // USB 子系统上电就绪缓冲（原唤醒延迟挪到这里，不再拖累 preCmd）
             Thread.sleep(forTimeInterval: 1)
 
@@ -670,7 +768,7 @@ final class Healer {
                 }
             }
             group.notify(queue: self.q) {
-                if anyOK && !cfg.postCmd.isEmpty { Sys.run(Sys.resolveUserCmds(cfg.postCmd)) }
+                if anyOK && !cfg.postCmd.isEmpty { Sys.runUserCmds(cfg.postCmd, wait: true) }
             }
         }
     }
@@ -817,6 +915,9 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
     private let postTV: NSTextView   // 「恢复后执行」
     private var boxes: [(NSButton, PresetCmd)] = []
     private var syncing = false
+    /// 勾选前的放行检查（如摄像头权限）。返回 false 则本次不勾；
+    /// 检查方可在异步授权成功后再 performClick 该按钮补勾
+    var willEnable: ((PresetCmd, NSButton) -> Bool)?
 
     init(preTV: NSTextView, postTV: NSTextView) {
         self.preTV = preTV
@@ -882,6 +983,11 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
         let hasTagged = lines.contains { Self.taggedMatches($0, p) }
 
         if !hasTagged {
+            if let gate = willEnable, !gate(p, sender) {
+                syncing = false
+                refreshBoxes()   // 权限未就绪：状态回弹为未勾
+                return
+            }
             let entry = "\(p.command)   \(Detect.mark)"
             if !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) {
                 while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
@@ -1094,6 +1200,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let forceShowSeconds: TimeInterval = 20
 
     static func main() {
+        // 命令行拍照模式：LTEGuard --snap [标签]，拍完打印路径退出（不进 UI）
+        if let i = CommandLine.arguments.firstIndex(of: "--snap") {
+            let tag = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "manual"
+            CameraSnap.runCLI(tag: tag)
+        }
+
         let app = NSApplication.shared
         let delegate = AppDelegate()
         AppDelegate.shared = delegate
@@ -1467,6 +1579,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         container.addSubview(postScroll)
 
         let editor = PostCmdEditor(preTV: preTV, postTV: postTV)
+        // 拍照预设的权限门：已授权放行；未询问过→系统弹窗，允许后自动补勾；
+        // 曾被拒→提示并打开系统设置的摄像头页（系统不会二次弹窗）
+        editor.willEnable = { [weak self] p, btn in
+            guard p.hint.hasPrefix("--snap") else { return true }
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized: return true
+            case .notDetermined:
+                AVCaptureDevice.requestAccess(for: .video) { ok in
+                    if ok { DispatchQueue.main.async { btn.performClick(nil) } }
+                }
+                return false
+            default:
+                let a = NSAlert()
+                a.messageText = T(125)
+                a.informativeText = I18n.shared.paragraph(T(129))
+                a.addButton(withTitle: T(17))
+                a.runModal()
+                if #available(macOS 13.0, *) {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")!)
+                } else {
+                    Sys.run("open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera' 2>/dev/null || open -b com.apple.systempreferences", wait: false)
+                }
+                _ = self
+                return false
+            }
+        }
         self.postCmdEditor = editor   // 持有，否则 target/delegate（弱引用）会被立即释放，勾选与文本回调全部失效
 
         // ── 勾选区（可滚动）。顶部一条发丝线，让"手写命令区/勾选预设区"的
@@ -1499,10 +1637,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         func soundCmd(_ name: String) -> String { "afplay /System/Library/Sounds/\(name).aiff" }
         let whInit = AppDelegate.parseWebhook(from: cfg.postCmd)   // webhook 回显（平台，地址）
 
+        let appExe = Bundle.main.bundlePath + "/Contents/MacOS/" +
+            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
         let common: [PresetCmd] = [
             PresetCmd(title: T(80),
                       command: Sys.openNetworkPaneCmd,
                       hint: "systempreferences", pre: true),
+            PresetCmd(title: T(125),
+                      command: "'\(appExe)' --snap wake",
+                      hint: "--snap wake", pre: true),
+            PresetCmd(title: T(126),
+                      command: "'\(appExe)' --snap restored",
+                      hint: "--snap restored"),
             PresetCmd(title: T(83), command: soundCmd(initialSound),
                       hint: "afplay"),
             PresetCmd(title: T(92),
@@ -1838,6 +1984,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         b.addButton(withTitle: T(27))
         b.addButton(withTitle: T(18))
         if b.runModal() == .alertFirstButtonReturn { LaunchAtLogin.set(true) }
+
+        // 门卫室：首次引导就把摄像头权限配置好（用户拒绝也不影响其他功能，
+        // 之后勾选拍照预设时会再引导）
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            let c = NSAlert()
+            c.messageText = T(125)
+            c.informativeText = I18n.shared.paragraph(T(128))
+            c.addButton(withTitle: T(17))
+            c.addButton(withTitle: T(18))
+            if c.runModal() == .alertFirstButtonReturn {
+                AVCaptureDevice.requestAccess(for: .video) { _ in }
+            }
+        }
         refreshIcon()
     }
 

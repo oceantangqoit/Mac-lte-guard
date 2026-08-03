@@ -12,6 +12,7 @@
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>10.15</string>
   <key>LSUIElement</key><true/>
+  <key>NSCameraUsageDescription</key><string>断联/恢复时拍一张现场照，只保存在本机「门卫室」文件夹。Takes a snapshot when the link drops or recovers; saved only to the local gatehouse folder.</string>
   <key>NSHumanReadableCopyright</key><string>MIT License</string>
 </dict>
 </plist>
