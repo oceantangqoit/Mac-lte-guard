@@ -1611,14 +1611,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pop.font = NSFont.systemFont(ofSize: 11)
             pop.target = self
             pop.action = #selector(webhookPlatformChanged(_:))
+            let helpW: CGFloat = 26
             let field = NSTextField(frame: NSRect(x: 24, y: cb.frame.minY - CGFloat(rowH) + 1,
-                                                  width: CGFloat(W) - 48, height: 20))
+                                                  width: CGFloat(W) - 48 - helpW - 6, height: 20))
             field.placeholderString = T(123)
             field.stringValue = whInit.1
             field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             field.delegate = self
+            // ? ：打开当前平台的官方申请文档，不让用户自己去搜
+            let help = NSButton(frame: NSRect(x: CGFloat(W) - 20 - helpW, y: cb.frame.minY - CGFloat(rowH) - 1,
+                                              width: helpW, height: 24))
+            help.bezelStyle = .helpButton
+            help.title = ""
+            help.toolTip = T(124)
+            help.target = self
+            help.action = #selector(webhookHelp(_:))
             doc.addSubview(pop)
             doc.addSubview(field)
+            doc.addSubview(help)
             self.webhookPopup = pop
             self.webhookField = field
         }
@@ -1703,6 +1713,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return (platform, url)
         }
         return (0, "")
+    }
+
+    /// 各平台「怎么申请 webhook 地址」的官方文档（官方优先；合并项每家一篇）
+    static func webhookDocURLs(platform: Int) -> [String] {
+        switch platform {
+        case 0: return ["https://developer.work.weixin.qq.com/document/path/91770",
+                        "https://open.dingtalk.com/document/robots/custom-robot-access"]
+        case 1: return ["https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot"]
+        case 2: return ["https://api.slack.com/messaging/webhooks",
+                        "https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook",
+                        "https://developers.google.com/workspace/chat/quickstart/webhooks"]
+        case 3: return ["https://support.discord.com/hc/articles/228383668"]
+        case 4: return ["https://core.telegram.org/bots#how-do-i-create-a-bot"]
+        case 5: return ["https://docs.ntfy.sh/"]
+        case 6: return ["https://ifttt.com/maker_webhooks"]
+        default: return ["https://github.com/oceantangqoit/Mac-lte-guard#readme"]
+        }
+    }
+
+    /// ? 按钮：打开当前所选平台的官方申请文档
+    @objc private func webhookHelp(_ sender: NSButton) {
+        let platform = webhookPopup?.indexOfSelectedItem ?? 0
+        for u in AppDelegate.webhookDocURLs(platform: platform) {
+            if let url = URL(string: u) { NSWorkspace.shared.open(url) }
+        }
     }
 
     /// 平台或地址变化 → 重新生成命令；若已勾选，文本框中的行就地替换
