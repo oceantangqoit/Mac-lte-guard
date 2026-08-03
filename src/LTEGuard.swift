@@ -1487,6 +1487,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.global().asyncAfter(deadline: .now() + 8) {
             Healer.shared.checkAndHeal(reason: "launch")
         }
+
+        // 拍照授权体检：ad-hoc 签名重装后指纹变化，旧的摄像头授权会失配为
+        // "拒绝"且系统不再弹窗——配置了拍照却处于拒绝态时主动提醒，不无声失败
+        if (cfg0.preCmd + cfg0.postCmd).contains("--snap"),
+           AVCaptureDevice.authorizationStatus(for: .video) == .denied {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                let a = NSAlert()
+                a.messageText = T(125)
+                a.informativeText = I18n.shared.paragraph(T(129))
+                a.alertStyle = .warning
+                a.addButton(withTitle: T(17))
+                NSApp.activate(ignoringOtherApps: true)
+                a.runModal()
+                Sys.run("open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera'", wait: false)
+            }
+        }
     }
 
     /// SF Symbols 仅 macOS 11+ 提供；10.15 返回 nil，调用方走文字/无图标回退
