@@ -1586,6 +1586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         m.addItem(langItem)
         m.addItem(.separator())
         m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
+        m.addItem(item(T(137), #selector(checkUpdate), symbol: "arrow.down.circle"))
         m.addItem(item(T(14), #selector(quitGated), symbol: "power"))
         statusItem.menu = m
     }
@@ -2306,6 +2307,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func quit() {
         NSApp.terminate(nil)
+    }
+
+    /// 检查新版：仅在用户点击时联网查询 GitHub 最新 Release（无任何后台检查，
+    /// 守住"零后台联网"的承诺）。有新版→提示并跳转下载页；已最新/失败→通知
+    @objc func checkUpdate() {
+        notify(T(22))
+        DispatchQueue.global(qos: .userInitiated).async {
+            let out = Sys.run("curl -s -m 10 https://api.github.com/repos/oceantangqoit/Mac-lte-guard/releases/latest")
+            var latest = ""
+            if let d = out.data(using: .utf8),
+               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+               let tag = j["tag_name"] as? String {
+                latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            }
+            let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+            Auth.onMain { [weak self] in
+                guard let self else { return }
+                guard !latest.isEmpty else { self.notify(T(140)); return }
+                if Self.versionNewer(latest, than: cur) {
+                    let a = NSAlert()
+                    a.messageText = T(138, latest, cur)
+                    a.addButton(withTitle: T(17))
+                    a.addButton(withTitle: T(18))
+                    NSApp.activate(ignoringOtherApps: true)
+                    if a.runModal() == .alertFirstButtonReturn {
+                        NSWorkspace.shared.open(URL(string: "https://github.com/oceantangqoit/Mac-lte-guard/releases/latest")!)
+                    }
+                } else {
+                    self.notify(T(139))
+                }
+            }
+        }
+    }
+
+    static func versionNewer(_ a: String, than b: String) -> Bool {
+        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
+        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let x = i < pa.count ? pa[i] : 0, y = i < pb.count ? pb[i] : 0
+            if x != y { return x > y }
+        }
+        return false
     }
 
     // ── 敏感操作门禁（受「敏感操作需要验证」开关控制）──

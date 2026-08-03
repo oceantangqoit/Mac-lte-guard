@@ -1,0 +1,35 @@
+LTE Guard 安装前声明 / Pre-Installation Notice
+================================================
+
+一、本软件系依 MIT 许可按"现状"免费提供的开源软件，不对适销性、特定用途适用性及不侵权作任何明示或默示的保证。
+
+二、本软件包含执行用户自定义 Shell 命令、USB 设备软件拔插、摄像头拍照（门卫室，默认关闭、需另行签署协议并授权）等功能。上述功能的开启与使用均由用户自行决定，使用行为及其一切后果由用户自行承担；因用户违反法律法规使用本软件而产生的任何民事、行政或刑事责任，均与作者无关。
+
+三、本软件不上传任何数据；配置、日志、照片、签约记录均仅保存于用户本机。
+
+四、本声明及本软件的使用适用中华人民共和国法律。
+
+五、继续安装即表示您已阅读、理解并同意上述条款及下文 MIT 许可条款。本声明以中文文本为准，英文译文仅供参考。
+
+------------------------------------------------
+
+1. This is open-source software provided free of charge "AS IS" under the MIT License, without any express or implied warranty, including merchantability, fitness for a particular purpose, or non-infringement.
+
+2. This software can run user-defined shell commands, software-replug USB devices, and take photos via the camera (Gatehouse — off by default, requiring a separate agreement and authorization). Enabling and using these features is the user's own decision; all consequences rest with the user. Any civil, administrative, or criminal liability arising from unlawful use rests with the user and not the author.
+
+3. This software uploads nothing; configuration, logs, photos, and agreement records stay on the user's own machine.
+
+4. This notice and the use of this software are governed by the laws of the People's Republic of China.
+
+5. Proceeding with the installation constitutes acceptance of the terms above and the MIT License below. The Chinese text prevails.
+
+------------------------------------------------
+MIT License
+
+Copyright (c) 2026 Ocean Tang (唐海洋)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

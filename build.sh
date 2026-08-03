@@ -46,7 +46,12 @@ codesign --force --deep -s - "$APP"
 echo "[4/4] 打包 pkg / dmg..."
 rm -rf $B/pkgroot && mkdir -p $B/pkgroot/Applications && cp -R "$APP" $B/pkgroot/Applications/
 pkgbuild --root $B/pkgroot --scripts packaging/scripts --identifier com.oceantang.lteguard \
-         --version "$VER" --install-location / "dist/LTEGuard-$VER.pkg" >/dev/null
+         --version "$VER" --install-location / "$B/component.pkg" >/dev/null
+# productbuild 包装：安装器显示免责声明（继续安装即同意）
+sed "s/__VERSION__/$VER/g" packaging/distribution.xml > $B/distribution.xml
+cp packaging/install-license.txt $B/
+productbuild --distribution $B/distribution.xml --package-path $B --resources $B \
+             "dist/LTEGuard-$VER.pkg" >/dev/null
 rm -rf $B/dmgroot && mkdir $B/dmgroot && cp -R "$APP" $B/dmgroot/ && ln -s /Applications $B/dmgroot/Applications
 hdiutil create -volname "LTE Guard" -srcfolder $B/dmgroot -ov -format UDZO "dist/LTEGuard-$VER.dmg" >/dev/null
 
