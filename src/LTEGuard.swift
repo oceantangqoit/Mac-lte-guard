@@ -37,8 +37,12 @@ enum Auth {
     }
 
     /// 敏感操作入口：开关未开则直接执行
-    static func gate(then action: @escaping () -> Void) {
-        guardEnabled ? require(then: action) : action()
+    static func gate(_ op: String = "", then action: @escaping () -> Void) {
+        let go = {
+            if !op.isEmpty { OpsNotify.report(op) }
+            action()
+        }
+        guardEnabled ? require(then: go) : go()
     }
 
     /// 签约场景：始终验证，并把使用的验证方式告知回调（供签约存档记录）
@@ -141,6 +145,32 @@ enum WebhookSender {
             guard parts.count == 2 else { continue }
             send("[\(T(151, parts[0]))] \(parts[1])", sync: false, queueOnFail: true)
         }
+    }
+}
+
+// MARK: - 敏感操作通报
+// 用户在「Mac 唤醒后执行命令…」里勾选哪些操作要通报，操作发生时（验证通过后）
+// 立即发 webhook。人在异地也能第一时间知道有人动了守护设置。
+enum OpsNotify {
+    /// 操作代号 → 界面名称（复用既有菜单文案键，无需新翻译）
+    static var catalog: [(String, String)] {
+        [("editcmd", T(53)), ("target", T(10)), ("heal", T(11)), ("log", T(12)),
+         ("config", T(68)), ("launch", T(30)), ("usb", T(75)), ("quit", T(14))]
+    }
+
+    static func name(_ op: String) -> String {
+        catalog.first { $0.0 == op }?.1 ?? op
+    }
+
+    /// 已勾选才发；带操作名、机器名、使用者与时间
+    static func report(_ op: String) {
+        guard Config.load().notifyOps.contains(op) else { return }
+        let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+        let host = Host.current().localizedName ?? ""
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let text = T(177, name(op), "\(who)@\(host) · \(f.string(from: Date()))")
+        Sys.log(text)
+        WebhookSender.send(text)
     }
 }
 
@@ -559,6 +589,8 @@ struct Config {
     var targets: [Target] = []
     var preCmd = ""    // 发现断联时执行（此刻网络不可用）
     var postCmd = ""   // 恢复后执行
+    /// 勾选了「操作通报」的敏感操作代号（发生时发 webhook）
+    var notifyOps: Set<String> = []
 
     // 兼容视图：部分旧代码路径仍以"第一个对象"工作
     var dev: String { targets.first?.dev ?? "" }
@@ -581,6 +613,11 @@ struct Config {
 
             // TARGETS/PRE_CMD/POST_CMD 的值里可能含 \n、'、"   #lteguard" 标记，
             // 绝不能走"剥行尾注释"，必须按引号边界+转义规则解析（\' 不是结束，裸 ' 才是）
+            if key == "NOTIFY_OPS" {
+                let v = Config.parseQuoted(raw) ?? raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+                c.notifyOps = Set(v.split(separator: ",").map(String.init).filter { !$0.isEmpty })
+                continue
+            }
             if key == "POST_CMD" || key == "PRE_CMD" || key == "TARGETS" {
                 let v = Config.parseQuoted(raw) ?? Config.unescape(
                     raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'")))
@@ -621,6 +658,7 @@ struct Config {
         # LTE Guard 配置（由 App 维护，也可手改）
         # TARGETS：每行一个治愈对象，字段以制表符分隔：接口\t服务名\tUSB_VID\tUSB_PID
         TARGETS='\(Config.escape(rows))'
+        NOTIFY_OPS='\(notifyOps.sorted().joined(separator: ","))'
         PRE_CMD='\(Config.escape(preCmd))'
         POST_CMD='\(Config.escape(postCmd))'
 
@@ -2068,6 +2106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// 治愈对象：多选。每个勾选的网卡都被独立守护、独立修复。
     @objc func pickTarget() {
+        OpsNotify.report("target")
         let services = Sys.networkServices()
         guard !services.isEmpty else { notify(T(23)); return }
 
@@ -2332,6 +2371,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if !found.isEmpty { presets.append((T(85), found)) }
 
+        // 「操作通报」组：勾选的敏感操作发生时发 webhook（独立开关，不进命令文本）
+        var opBoxes: [(NSButton, String)] = []
+
         // 布局
         var rows: [NSView] = []
         for (header, items) in presets {
@@ -2357,6 +2399,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }
+        let opHeader = NSTextField(labelWithString: T(176))
+        opHeader.font = NSFont.boldSystemFont(ofSize: 11)
+        opHeader.textColor = .secondaryLabelColor
+        rows.append(opHeader)
+        for (code, title) in OpsNotify.catalog {
+            let cb = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+            cb.state = cfg.notifyOps.contains(code) ? .on : .off
+            rows.append(cb)
+            opBoxes.append((cb, code))
+        }
+
         let rowH = 22
         let contentH = max(180, rows.count * rowH + 8)
         let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16, height: contentH))
@@ -2457,6 +2510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         cfg.preCmd = clean(editor.currentPre)
         cfg.postCmd = clean(editor.currentPost)
+        cfg.notifyOps = Set(opBoxes.filter { $0.0.state == .on }.map { $0.1 })
         cfg.save()
         notify(T(55))
     }
@@ -2515,11 +2569,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return pick + text + "; " + imgFn
             case 3:   // Discord：两张附件 + 详尽文字（缺图时字段为空并不影响文本）
                 return pick + "curl -sf -F \"payload_json={\\\"content\\\":\\\"\(m)\\\"}\" ${IMG1:+-F \"file1=@$IMG1\"} ${IMG2:+-F \"file2=@$IMG2\"} '\(u)'"
-            case 4:   // Telegram：两次 sendPhoto，caption 带详尽信息
+            case 4:   // Telegram：两张合成相册（sendMediaGroup），一条消息图文混排
                 let photoURL = u.replacingOccurrences(of: "sendMessage", with: "sendPhoto")
-                return pick + "snd(){ [ -f \"$1\" ] || return; curl -sf -F \"photo=@$1\" -F \"caption=\(m)\" '\(photoURL)'; }; snd \"$IMG1\"; snd \"$IMG2\""
-            default:  // ntfy：详尽文本一条 + 两张 PUT
-                return pick + "curl -sf -d \"\(m)\" '\(u)'; snd(){ [ -f \"$1\" ] || return; curl -sf -T \"$1\" -H 'X-Title: LTE Guard' '\(u)'; }; snd \"$IMG1\"; snd \"$IMG2\""
+                let groupURL = u.replacingOccurrences(of: "sendMessage", with: "sendMediaGroup")
+                return pick + """
+                if [ -f "$IMG1" ] && [ -f "$IMG2" ]; then \
+                  curl -sf -F 'media=[{"type":"photo","media":"attach://p1","caption":"\(m)"},{"type":"photo","media":"attach://p2"}]' -F "p1=@$IMG1" -F "p2=@$IMG2" '\(groupURL)'; \
+                elif [ -f "$IMG1" ]; then curl -sf -F "photo=@$IMG1" -F "caption=\(m)" '\(photoURL)'; \
+                else curl -sf -G '\(u)' --data-urlencode "text=\(m)"; fi
+                """
+            default:  // ntfy：图片 PUT 时带 X-Message，一条通知即图文混排；无图则纯文本
+                return pick + "snd(){ [ -f \"$1\" ] || return 1; curl -sf -T \"$1\" -H 'X-Title: LTE Guard' -H \"X-Message: \(m)\" '\(u)'; }; snd \"$IMG1\" || curl -sf -d \"\(m)\" '\(u)'; snd \"$IMG2\""
             }
         }
 
@@ -2721,7 +2781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func toggleLaunch() {
         if LaunchAtLogin.isEnabled {
             // 关闭自启会让守护在重启后失效——敏感方向，受门禁
-            Auth.gate { [weak self] in
+            Auth.gate("launch") { [weak self] in
                 LaunchAtLogin.set(false)
                 self?.notify(T(44))
                 self?.refreshIcon()
@@ -2782,6 +2842,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func healNow() {
+        OpsNotify.report("heal")
         notify(T(22))
         Healer.shared.checkAndHeal(reason: "manual")
     }
@@ -2968,9 +3029,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     // ── 敏感操作门禁（受「敏感操作需要验证」开关控制）──
-    @objc func editPostCmdGated()    { Auth.gate { [weak self] in self?.editPostCmd() } }
+    @objc func editPostCmdGated()    { Auth.gate("editcmd") { [weak self] in self?.editPostCmd() } }
     @objc func quitGated() {
-        Auth.gate {
+        Auth.gate("quit") {
             // 退出守护前留一张（拍照功能开启时）：谁关的门卫，门卫先拍谁
             let cfg = Config.load()
             if CameraSnap.authorized, (cfg.preCmd + cfg.postCmd).contains("--snap") {
@@ -2985,8 +3046,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
     }
-    @objc func openConfigFolderGated() { Auth.gate { [weak self] in self?.openConfigFolder() } }
-    @objc func openLogGated()        { Auth.gate { [weak self] in self?.openLog() } }
+    @objc func openConfigFolderGated() { Auth.gate("config") { [weak self] in self?.openConfigFolder() } }
+    @objc func openLogGated()        { Auth.gate("log") { [weak self] in self?.openLog() } }
 
     /// 开关本身也要防绕过：开启随手，关闭需验证
     @objc func toggleAuthGuard() {
