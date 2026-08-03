@@ -144,6 +144,180 @@ enum WebhookSender {
     }
 }
 
+// MARK: - 更新器
+// 下载落在配置目录 updates/ 子目录，用户可随时查看/删除。
+// GitHub 直连不通时自动走加速镜像；每日静默预下载，装不装由用户点头。
+enum Updater {
+    static var dir: String { I18n.appSupportDir + "/updates" }
+    static let repo = "oceantangqoit/Mac-lte-guard"
+
+    /// 加速镜像前缀（直连失败后依次尝试）——国内常见的 GitHub 代理
+    static let mirrors = ["https://ghfast.top/", "https://gh-proxy.com/", "https://ghproxy.net/"]
+
+    static var autoCheck: Bool {
+        get { UserDefaults.standard.object(forKey: "autoCheckUpdate") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCheckUpdate") }
+    }
+    private static var lastCheck: Date {
+        get { UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date ?? .distantPast }
+        set { UserDefaults.standard.set(newValue, forKey: "lastUpdateCheck") }
+    }
+    /// 已下载待安装的版本（菜单据此显示「安装更新 x.y.z」）
+    static var readyVersion: String? {
+        guard let fs = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return nil }
+        let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        return fs.compactMap { f -> String? in
+            guard f.hasPrefix("LTEGuard-"), f.hasSuffix(".dmg") || f.hasSuffix(".pkg") else { return nil }
+            let v = String(f.dropFirst("LTEGuard-".count).dropLast(4))
+            return AppDelegate.versionNewer(v, than: cur) ? v : nil
+        }.sorted { AppDelegate.versionNewer($0, than: $1) }.first
+    }
+
+    /// 查询最新版（直连 → 镜像）。返回 (版本, dmg 地址, pkg 地址)
+    static func fetchLatest() -> (String, String, String)? {
+        var urls = ["https://api.github.com/repos/\(repo)/releases/latest"]
+        urls += mirrors.map { $0 + "https://api.github.com/repos/\(repo)/releases/latest" }
+        for u in urls {
+            let out = Sys.run("curl -sL -m 12 '\(u)'")
+            guard let d = out.data(using: .utf8),
+                  let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+                  let tag = j["tag_name"] as? String else { continue }
+            var dmg = "", pkg = ""
+            for a in (j["assets"] as? [[String: Any]]) ?? [] {
+                guard let n = a["name"] as? String,
+                      let du = a["browser_download_url"] as? String else { continue }
+                if n.hasSuffix(".dmg") { dmg = du } else if n.hasSuffix(".pkg") { pkg = du }
+            }
+            return (tag.hasPrefix("v") ? String(tag.dropFirst()) : tag, dmg, pkg)
+        }
+        return nil
+    }
+
+    /// 把各版本的更新概要写进 updates/commits.txt（倒序，最新在最上）——
+    /// 内容取自各 Release 的说明（CI 自动汇总的中文 commit 标题）
+    static func writeChangelog() {
+        var urls = ["https://api.github.com/repos/\(repo)/releases?per_page=30"]
+        urls += mirrors.map { $0 + "https://api.github.com/repos/\(repo)/releases?per_page=30" }
+        for u in urls {
+            let out = Sys.run("curl -sL -m 15 '\(u)'")
+            guard let d = out.data(using: .utf8),
+                  let arr = (try? JSONSerialization.jsonObject(with: d)) as? [[String: Any]],
+                  !arr.isEmpty else { continue }
+            var text = "LTE Guard — \(T(172))\n\(String(repeating: "=", count: 60))\n\n"
+            for r in arr {
+                let tag = r["tag_name"] as? String ?? "?"
+                let date = String((r["published_at"] as? String ?? "").prefix(10))
+                let body = (r["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                text += "── \(tag)  \(date) \(String(repeating: "─", count: max(0, 40 - tag.count)))\n"
+                text += (body.isEmpty ? "-" : body) + "\n\n"
+            }
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try? text.write(toFile: dir + "/commits.txt", atomically: true, encoding: .utf8)
+            return
+        }
+    }
+
+    /// 下载到 updates/（直连 → 镜像）。成功返回本地路径
+    @discardableResult
+    static func download(_ url: String, name: String) -> String? {
+        guard !url.isEmpty else { return nil }
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let dest = dir + "/" + name
+        if FileManager.default.fileExists(atPath: dest) { return dest }   // 已下过就不重下
+        for u in [url] + mirrors.map({ $0 + url }) {
+            let tmp = dest + ".part"
+            let out = Sys.run("curl -sL -m 600 -o '\(tmp)' '\(u)' && echo __OK__")
+            let size = (try? FileManager.default.attributesOfItem(atPath: tmp))?[.size] as? Int ?? 0
+            if out.contains("__OK__"), size > 200_000 {   // 安装包至少 200KB，防止把错误页当成包
+                try? FileManager.default.moveItem(atPath: tmp, toPath: dest)
+                Sys.log(T(160, name))
+                writeChangelog()   // 顺手更新各版本概要
+                return dest
+            }
+            try? FileManager.default.removeItem(atPath: tmp)
+        }
+        Sys.log(T(162, name))
+        return nil
+    }
+
+    /// 前台：下载并安装（用户点了「立即下载并更新」）
+    static func downloadAndInstall(version: String, dmg: String, pkg: String) {
+        Notifier.post(T(160, version))
+        DispatchQueue.global(qos: .userInitiated).async {
+            // App 目录可写就用 dmg 直接替换，否则用 pkg 交系统安装器
+            let selfWritable = FileManager.default.isWritableFile(atPath: Bundle.main.bundlePath)
+            let useDmg = selfWritable && !dmg.isEmpty
+            let path = useDmg ? download(dmg, name: "LTEGuard-\(version).dmg")
+                              : download(pkg, name: "LTEGuard-\(version).pkg")
+            Auth.onMain {
+                guard let path = path else { Notifier.post(T(162, version)); return }
+                install(path: path, version: version)
+            }
+        }
+    }
+
+    /// 安装已下载的包：dmg 直接替换并重启；pkg 交系统安装器（会要密码）
+    static func install(path: String, version: String) {
+        let a = NSAlert()
+        a.messageText = T(161, version)
+        a.informativeText = I18n.shared.paragraph(T(165, path))
+        a.addButton(withTitle: T(17))
+        a.addButton(withTitle: T(18))
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+
+        if path.hasSuffix(".pkg") {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))   // 系统安装器接手
+            return
+        }
+        // dmg：挂载 → ditto 覆盖 → 卸载 → 重启自身
+        Sys.log(T(166, version))
+        let app = Bundle.main.bundlePath
+        let exe = app + "/Contents/MacOS/" +
+            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
+        let script = """
+        MNT=$(mktemp -d)
+        hdiutil attach '\(path)' -nobrowse -quiet -mountpoint "$MNT" || exit 1
+        sleep 1
+        rm -rf '\(app)' && ditto "$MNT/LTEGuard.app" '\(app)'
+        hdiutil detach "$MNT" -quiet
+        sleep 1
+        open -a '\(app)' 2>/dev/null || '\(exe)' &
+        """
+        Sys.run("nohup sh -c \"\(script.replacingOccurrences(of: "\"", with: "\\\""))\" >/dev/null 2>&1 &", wait: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSApp.terminate(nil) }
+    }
+
+    /// 安装 updates/ 里已下好的最新一版（历史安装包一律保留，不清理）
+    static func installReady() {
+        guard let v = readyVersion else { return }
+        for ext in ["dmg", "pkg"] {
+            let p = dir + "/LTEGuard-\(v).\(ext)"
+            if FileManager.default.fileExists(atPath: p) { install(path: p, version: v); return }
+        }
+    }
+
+    /// 后台：每天最多查一次，发现新版静默下好，只发一条「已就绪」通知
+    static func dailyCheckIfDue() {
+        guard autoCheck, Date().timeIntervalSince(lastCheck) > 86_400 else { return }
+        DispatchQueue.global(qos: .background).async {
+            guard let (latest, dmg, pkg) = fetchLatest() else { return }   // 连不上就静默作罢，明天再来
+            lastCheck = Date()
+            writeChangelog()
+            let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+            guard AppDelegate.versionNewer(latest, than: cur) else { return }
+            let selfWritable = FileManager.default.isWritableFile(atPath: Bundle.main.bundlePath)
+            let ok = selfWritable && !dmg.isEmpty
+                ? download(dmg, name: "LTEGuard-\(latest).dmg")
+                : download(pkg, name: "LTEGuard-\(latest).pkg")
+            if ok != nil {
+                Notifier.post(T(167, latest))
+                Auth.onMain { AppDelegate.shared?.refreshIcon() }   // 菜单出现「安装更新」
+            }
+        }
+    }
+}
+
 // MARK: - 签约存档
 // 责任移交/风险确认属于"签约"：验证即签名，存档即立据。
 // 每次签约在配置目录 agreement/ 下留一份可读文本，内容固定中英双语，
@@ -1695,6 +1869,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.global().asyncAfter(deadline: .now() + 8) {
             Healer.shared.checkAndHeal(reason: "launch")
         }
+        // 每日更新检查（默认开，菜单可关）：启动后 30 秒错开开机高峰，
+        // 之后每 6 小时看一次「是否已满 24 小时」，连不上就静默作罢
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30) { Updater.dailyCheckIfDue() }
+        Timer.scheduledTimer(withTimeInterval: 21_600, repeats: true) { _ in
+            DispatchQueue.global().async { Updater.dailyCheckIfDue() }
+        }
 
         // 拍照授权体检：ad-hoc 签名重装后指纹变化，旧的摄像头授权失配为"拒绝"
         // 且系统不再弹窗。自动处理，不让用户碰命令行：
@@ -1879,7 +2059,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         m.addItem(langItem)
         m.addItem(.separator())
         m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
+        // 已静默下好新版时，菜单直接给出一键安装入口
+        if let ready = Updater.readyVersion {
+            m.addItem(item(T(168, ready), #selector(installUpdate), symbol: "arrow.down.app"))
+        }
         m.addItem(item(T(137), #selector(checkUpdate), symbol: "arrow.down.circle"))
+        m.addItem(item(T(169), #selector(toggleAutoUpdate),
+                       state: Updater.autoCheck ? .on : .off, symbol: "calendar"))
         m.addItem(item(T(14), #selector(quitGated), symbol: "power"))
         statusItem.menu = m
     }
@@ -2734,30 +2920,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notify(T(22))
         DispatchQueue.global(qos: .userInitiated).async {
             let out = Sys.run("curl -s -m 10 https://api.github.com/repos/oceantangqoit/Mac-lte-guard/releases/latest")
-            var latest = ""
+            var latest = "", dmg = "", pkg = ""
             if let d = out.data(using: .utf8),
                let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
                let tag = j["tag_name"] as? String {
                 latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+                for a in (j["assets"] as? [[String: Any]]) ?? [] {
+                    guard let n = a["name"] as? String,
+                          let u = a["browser_download_url"] as? String else { continue }
+                    if n.hasSuffix(".dmg") { dmg = u } else if n.hasSuffix(".pkg") { pkg = u }
+                }
             }
             let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
             Auth.onMain { [weak self] in
                 guard let self else { return }
                 guard !latest.isEmpty else { self.notify(T(140)); return }
-                if Self.versionNewer(latest, than: cur) {
-                    let a = NSAlert()
-                    a.messageText = T(138, latest, cur)
-                    a.addButton(withTitle: T(17))
-                    a.addButton(withTitle: T(18))
-                    NSApp.activate(ignoringOtherApps: true)
-                    if a.runModal() == .alertFirstButtonReturn {
-                        NSWorkspace.shared.open(URL(string: "https://github.com/oceantangqoit/Mac-lte-guard/releases/latest")!)
-                    }
-                } else {
-                    self.notify(T(139))
+                guard Self.versionNewer(latest, than: cur) else { self.notify(T(139)); return }
+
+                let a = NSAlert()
+                a.messageText = T(138, latest, cur)
+                a.informativeText = I18n.shared.paragraph(T(164))
+                a.addButton(withTitle: T(163))   // 立即下载并更新
+                a.addButton(withTitle: T(58))    // 项目主页（自己下）
+                a.addButton(withTitle: T(18))
+                NSApp.activate(ignoringOtherApps: true)
+                switch a.runModal() {
+                case .alertFirstButtonReturn:
+                    Updater.downloadAndInstall(version: latest, dmg: dmg, pkg: pkg)
+                case .alertSecondButtonReturn:
+                    NSWorkspace.shared.open(URL(string: "https://github.com/oceantangqoit/Mac-lte-guard/releases/latest")!)
+                default: break
                 }
             }
         }
+    }
+
+    @objc func installUpdate() { Updater.installReady() }
+
+    @objc func toggleAutoUpdate() {
+        Updater.autoCheck.toggle()
+        notify(Updater.autoCheck ? T(170) : T(171))
+        refreshIcon()
     }
 
     static func versionNewer(_ a: String, than b: String) -> Bool {
