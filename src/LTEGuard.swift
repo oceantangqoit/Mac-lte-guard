@@ -2025,21 +2025,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             m.addItem(row)
         }
         m.addItem(.separator())
-        m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
-        m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
-        m.addItem(item(T(12), #selector(openLogGated), symbol: "doc.text"))
-        m.addItem(item(T(68), #selector(openConfigFolderGated), symbol: "folder"))
-        m.addItem(item(T(30), #selector(toggleLaunch),
-                       state: LaunchAtLogin.isEnabled ? .on : .off, symbol: "power.circle"))
-        m.addItem(item(T(132), #selector(toggleAuthGuard),
-                       state: Auth.guardEnabled ? .on : .off, symbol: "touchid"))
-        m.addItem(item(T(29), #selector(showDiagnosis), symbol: "stethoscope"))
-        m.addItem(item(T(53), #selector(editPostCmdGated), symbol: "terminal"))
 
+        // ── 常用动作（一级，最多三项）──
+        m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
+        m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
+        m.addItem(item(T(53), #selector(editPostCmdGated), symbol: "terminal"))
+        m.addItem(.separator())
+
+        // ── 设置 ▸（改变行为的开关）──
+        let setItem = item(T(178), nil, symbol: "gearshape")
+        let setMenu = sub()
+        setMenu.addItem(item(T(30), #selector(toggleLaunch),
+                             state: LaunchAtLogin.isEnabled ? .on : .off, symbol: "power.circle"))
+        setMenu.addItem(item(T(132), #selector(toggleAuthGuard),
+                             state: Auth.guardEnabled ? .on : .off, symbol: "touchid"))
+        // 菜单栏图标显示方式
+        let iconItem = item(T(48), nil, symbol: "menubar.rectangle")
+        let iconMenu = sub()
+        for (mode, title) in [(IconMode.always, T(49)), (.problemOnly, T(50)), (.hidden, T(51))] {
+            let mi = NSMenuItem(title: title, action: #selector(setIconMode(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.tag = mode.rawValue
+            mi.state = (IconMode.current == mode) ? .on : .off
+            iconMenu.addItem(mi)
+        }
+        iconItem.submenu = iconMenu
+        setMenu.addItem(iconItem)
+        setMenu.addItem(languageItem())
+        setItem.submenu = setMenu
+        m.addItem(setItem)
+
+        // ── 工具 ▸（查看与排查）──
+        let toolItem = item(T(179), nil, symbol: "hammer")
+        let toolMenu = sub()
+        toolMenu.addItem(item(T(12), #selector(openLogGated), symbol: "doc.text"))
+        toolMenu.addItem(item(T(68), #selector(openConfigFolderGated), symbol: "folder"))
+        toolMenu.addItem(item(T(29), #selector(showDiagnosis), symbol: "stethoscope"))
         // 重置任意 USB 设备（音频接口、摄像头、硬盘、扩展坞等同样会睡眠后假死）
         let usbItem = item(T(75), nil, symbol: "cable.connector")
-        let usbMenu = NSMenu()
-        usbMenu.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
+        let usbMenu = sub()
         let hint = NSMenuItem(title: T(76), action: nil, keyEquivalent: "")
         hint.isEnabled = false
         usbMenu.addItem(hint)
@@ -2052,39 +2076,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             usbMenu.addItem(di)
         }
         usbItem.submenu = usbMenu
-        usbItem.isEnabled = true
-        m.addItem(usbItem)
+        toolMenu.addItem(usbItem)
+        toolItem.submenu = toolMenu
+        m.addItem(toolItem)
 
-        // 菜单栏图标显示方式
-        let iconItem = item(T(48), nil, symbol: "menubar.rectangle")
-        let iconMenu = NSMenu()
-        iconMenu.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
-        for (mode, title) in [(IconMode.always, T(49)), (.problemOnly, T(50)), (.hidden, T(51))] {
-            let mi = NSMenuItem(title: title, action: #selector(setIconMode(_:)), keyEquivalent: "")
-            mi.target = self
-            mi.tag = mode.rawValue
-            mi.state = (IconMode.current == mode) ? .on : .off
-            iconMenu.addItem(mi)
+        // ── 更新 ▸（就绪时把一键安装提到一级，其余收进子菜单）──
+        if let ready = Updater.readyVersion {
+            m.addItem(item(T(168, ready), #selector(installUpdate), symbol: "arrow.down.app"))
         }
-        iconItem.submenu = iconMenu
-        iconItem.isEnabled = true
-        m.addItem(iconItem)
+        let upItem = item(T(180), nil, symbol: "arrow.down.circle")
+        let upMenu = sub()
+        upMenu.addItem(item(T(137), #selector(checkUpdate), symbol: "arrow.down.circle"))
+        upMenu.addItem(item(T(169), #selector(toggleAutoUpdate),
+                            state: Updater.autoCheck ? .on : .off, symbol: "calendar"))
+        upItem.submenu = upMenu
+        m.addItem(upItem)
 
-        // 语言子菜单
-        let langItem = item(T(13), nil, symbol: "globe")
-        let langMenu = NSMenu()
-        let disc = NSMenuItem(title: T(69), action: nil, keyEquivalent: "")
-        disc.isEnabled = false
-        langMenu.addItem(disc)
-        langMenu.addItem(.separator())
-        langMenu.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
-        for (code, name) in I18n.shared.available {
+        m.addItem(.separator())
+        m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
+        m.addItem(item(T(14), #selector(quitGated), symbol: "power"))
+        statusItem.menu = m
+    }
+
+    /// 统一的子菜单构造（RTL 语言下菜单方向也要跟着翻转）
+    private func sub() -> NSMenu {
+        let mm = NSMenu()
+        mm.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
+        return mm
+    }
+
+    /// 语言菜单：中文及方言、中国少数民族语言各收进子目录，其余平铺
+    private func languageItem() -> NSMenuItem {
+        let zhCodes: Set<String> = ["zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei",
+            "cmn-henan", "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan",
+            "hak", "wuu", "lzh"]
+        let minorityCodes: Set<String> = ["bo", "ug", "mn-Mong", "kk"]
+
+        func langRow(_ code: String, _ name: String) -> NSMenuItem {
             let li = NSMenuItem(title: name, action: #selector(switchLang(_:)), keyEquivalent: "")
             li.target = self
             li.representedObject = code
             li.state = (code == I18n.shared.code) ? .on : .off
-            langMenu.addItem(li)
+            return li
         }
+
+        let langItem = item(T(13), nil, symbol: "globe")
+        let langMenu = sub()
+        let disc = NSMenuItem(title: T(69), action: nil, keyEquivalent: "")
+        disc.isEnabled = false
+        langMenu.addItem(disc)
+        langMenu.addItem(.separator())
+
+        let all = I18n.shared.available
+        let zhItem = NSMenuItem(title: T(181), action: nil, keyEquivalent: "")
+        let zhMenu = sub()
+        for (c, n) in all where zhCodes.contains(c) { zhMenu.addItem(langRow(c, n)) }
+        zhItem.submenu = zhMenu
+        langMenu.addItem(zhItem)
+
+        let minItem = NSMenuItem(title: T(182), action: nil, keyEquivalent: "")
+        let minMenu = sub()
+        for (c, n) in all where minorityCodes.contains(c) { minMenu.addItem(langRow(c, n)) }
+        minItem.submenu = minMenu
+        if minMenu.items.count > 0 { langMenu.addItem(minItem) }
+
+        langMenu.addItem(.separator())
+        for (c, n) in all where !zhCodes.contains(c) && !minorityCodes.contains(c) {
+            langMenu.addItem(langRow(c, n))
+        }
+
         langMenu.addItem(.separator())
         let editCur = NSMenuItem(title: T(71), action: #selector(editCurrentLang), keyEquivalent: "")
         editCur.target = self
@@ -2093,19 +2153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openDir.target = self
         langMenu.addItem(openDir)
         langItem.submenu = langMenu
-        langItem.isEnabled = true
-        m.addItem(langItem)
-        m.addItem(.separator())
-        m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
-        // 已静默下好新版时，菜单直接给出一键安装入口
-        if let ready = Updater.readyVersion {
-            m.addItem(item(T(168, ready), #selector(installUpdate), symbol: "arrow.down.app"))
-        }
-        m.addItem(item(T(137), #selector(checkUpdate), symbol: "arrow.down.circle"))
-        m.addItem(item(T(169), #selector(toggleAutoUpdate),
-                       state: Updater.autoCheck ? .on : .off, symbol: "calendar"))
-        m.addItem(item(T(14), #selector(quitGated), symbol: "power"))
-        statusItem.menu = m
+        return langItem
     }
 
     // MARK: 动作
