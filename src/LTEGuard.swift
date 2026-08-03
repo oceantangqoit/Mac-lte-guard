@@ -1482,7 +1482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // 系统提示音：动态枚举，初始选中沿用配置里已勾选的那个（没有则 Glass）
         let sounds = ((try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds")) ?? [])
-            .filter { $0.hasSuffix(".aiff") }.map { String($0.dropLast(6)) }.sorted()
+            .filter { $0.hasSuffix(".aiff") }.map { String($0.dropLast(".aiff".count)) }.sorted()
         var initialSound = "Glass"
         for line in cfg.postCmd.split(separator: "\n") {
             let s = line.trimmingCharacters(in: .whitespaces)
@@ -1551,31 +1551,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cb.toolTip = p.command
                 editor.register(cb, p)
 
-                // 提示音行：勾选框 + 声音下拉框 + ▶ 预览按钮排成一行
-                if p.hint == "afplay" {
-                    let row = NSView()
-                    let popW: CGFloat = 110, playW: CGFloat = 26
-                    cb.frame = NSRect(x: 0, y: 0, width: CGFloat(W) - 24 - popW - playW - 12, height: 18)
-                    let pop = NSPopUpButton(frame: NSRect(x: CGFloat(W) - 24 - popW - playW - 6, y: -3,
-                                                          width: popW, height: 24), pullsDown: false)
-                    pop.addItems(withTitles: sounds)
-                    pop.selectItem(withTitle: initialSound)
-                    pop.font = NSFont.systemFont(ofSize: 11)
-                    pop.target = self
-                    pop.action = #selector(soundChanged(_:))
-                    let play = NSButton(frame: NSRect(x: CGFloat(W) - 24 - playW, y: -3, width: playW, height: 24))
-                    play.bezelStyle = .rounded
-                    play.title = "▶"
-                    play.font = NSFont.systemFont(ofSize: 10)
-                    play.target = self
-                    play.action = #selector(previewSound(_:))
-                    row.addSubview(cb); row.addSubview(pop); row.addSubview(play)
-                    self.soundPopup = pop
-                    self.soundCheckbox = cb
-                    rows.append(row)
-                } else {
-                    rows.append(cb)
-                }
+                // 提示音行：下拉框与预览按钮不包容器、稍后直接放进列表视图——
+                // 包在 18pt 高的行容器里时，24pt 高的控件会越界，
+                // 显示正常但命中测试到不了（macOS 不裁剪显示、但按父边界命中）
+                if p.hint == "afplay" { self.soundCheckbox = cb }
+                rows.append(cb)
             }
         }
         let rowH = 22
@@ -1586,6 +1566,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             v.frame = NSRect(x: 4, y: y, width: W - 24, height: 18)
             doc.addSubview(v)
             y -= rowH
+        }
+
+        // 提示音行的下拉框与 ▶ 直接挂在列表视图上（与勾选框同一行的右侧）
+        if let cb = self.soundCheckbox {
+            let popW: CGFloat = 110, playW: CGFloat = 28
+            cb.setFrameSize(NSSize(width: CGFloat(W) - 24 - popW - playW - 16, height: 18))
+            let rowY = cb.frame.minY
+            let pop = NSPopUpButton(frame: NSRect(x: CGFloat(W) - 20 - popW - playW - 6, y: rowY - 3,
+                                                  width: popW, height: 24), pullsDown: false)
+            pop.addItems(withTitles: sounds)
+            pop.selectItem(withTitle: initialSound)
+            pop.font = NSFont.systemFont(ofSize: 11)
+            pop.target = self
+            pop.action = #selector(soundChanged(_:))
+            let play = NSButton(frame: NSRect(x: CGFloat(W) - 20 - playW, y: rowY - 3,
+                                              width: playW, height: 24))
+            play.bezelStyle = .rounded
+            play.title = "▶"
+            play.target = self
+            play.action = #selector(previewSound(_:))
+            doc.addSubview(pop)
+            doc.addSubview(play)
+            self.soundPopup = pop
         }
         listScroll.documentView = doc
         container.addSubview(listScroll)
@@ -1622,10 +1625,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// 预览当前选中的提示音。用 NSSound 而非 afplay 子进程——
     /// 模态对话框期间照常工作，也不依赖 shell
     @objc private func previewSound(_ sender: NSButton) {
-        guard let name = soundPopup?.titleOfSelectedItem else { return }
+        guard let name = soundPopup?.titleOfSelectedItem else { Sys.log("preview: no popup"); return }
         previewPlayer?.stop()
         previewPlayer = NSSound(contentsOfFile: "/System/Library/Sounds/\(name).aiff", byReference: true)
-        previewPlayer?.play()
+        let ok = previewPlayer?.play() ?? false
+        Sys.log("preview \(name): \(ok ? "playing" : "FAILED")")
     }
 
     /// 对任意 USB 设备执行软件拔插。用于音频接口、摄像头、外置硬盘、扩展坞等
