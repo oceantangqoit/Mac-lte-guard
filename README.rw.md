@@ -106,7 +106,7 @@ LTE Guard ni umurinzi uguma ku murongo w'ibikubiyemo, utega amatwi ibyabaye byo 
 - 🔌 **Bikora no ku bikoresho bitari USB** — bihita bikoresha kongera gutangiza serivisi y'urusobe
 - 🛠 **Amategeko y'ibyiciro bibiri** — amwe akorwa **ako kanya umurongo ucitse** (urugero gufungura urupapuro rw'urusobe ukareba uko gusana bigenda), andi **nyuma yo gusanwa** (kongera guhuza proxy, kongera guhamagara, n'ibindi)
 - 🔔 **Ubutumwa buza gusa iyo byagenze neza** — ubona ubutumwa bumwe gusa, iyo igikoresho cyagarutse **kandi** byemejwe ko interineti ikora koko (hamwe n'igihe byatwaye); gusana bikirimo, kutagira interineti no kunanirwa bigaragazwa gusa ku kimenyetso cyo ku murongo w'ibikubiyemo (akaziga kazenguruka / `✓8s` / `⚠︎` / `✕`)
-- 🌍 **Indimi 66** — imigaragarire na log byahinduwe mu ndimi zose; bikurikira ururimi rwa sisitemu ku buryo bwikora, ushobora no guhitamo mu bikubiyemo
+- 🌍 **Indimi nyinshi** — kuva ku mvugo z'Abashinwa kugeza ku ndimi z'imiryango mito; imigaragarire na log byahinduwe; bikurikira ururimi rwa sisitemu ku buryo bwikora, ushobora no guhitamo mu bikubiyemo
 - 🪶 **Nta bindi bikenewe** — porogaramu imwe gusa: nta serivisi z'inyuma zishyirwaho, nta Homebrew, kandi nta burenganzira bwisumbuye na buke bukenewe
 
 ## Kwinjiza
@@ -165,7 +165,7 @@ Ibindi biri mu bikubiyemo:
 | Gusubiza mu buryo bushya igikoresho cya USB | Bigaragaza ibikoresho bya USB byose, ugakuramo ugashyiramo mu buryo bwa porogaramu ukanda rimwe — birakora no ku bikoresho by'amajwi, kamera, disiki, na dock |
 | Ikimenyetso ku murongo w'ibikubiyemo | Kigaragara buri gihe / kigaragara gusa iyo hari ikibazo / gihishwe (**iyo wagihishe, ongera ufungure porogaramu uyikuye muri «Applications» kugira ngo ugarure**) |
 | Fungura ububiko bw'igenamiterere | Gufungura muri Finder ubu bwose: igenamiterere, log, n'indimi |
-| Ururimi | Guhindura hagati y'indimi 66; muri sous-menu ushobora guhindura ururimi rukoreshwa cyangwa gufungura ububiko bw'indimi |
+| Ururimi | Guhindura ururimi; muri sous-menu ushobora guhindura ururimi rukoreshwa cyangwa gufungura ububiko bw'indimi |
 
 ## Indimi zandikwa uhereye iburyo (RTL)
 
@@ -179,7 +179,7 @@ Kubera ko guhindura ururimi muri iyi porogaramu byakozwe imbere muri yo ubwayo (
 
 ## Indimi nyinshi
 
-Muri porogaramu harimo **indimi 66**; igihe itangiye ihitamo ubwayo ikurikije ururimi rwa sisitemu, kandi ushobora no guhindura mu bikubiyemo muri «Ururimi» (ihitamo ryawe ryibukwa).
+Muri porogaramu harimo indimi nyinshi; igihe itangiye ihitamo ubwayo ikurikije ururimi rwa sisitemu, kandi ushobora no guhindura mu bikubiyemo muri «Ururimi» (ihitamo ryawe ryibukwa).
 
 Indimi zongeweho nyuma zahinduwe hifashishijwe AI kandi ntizirasuzumwa n'abazivukanamo; ibyo byanditse ku ntangiriro ya buri dosiye. **Niba ubonye imvugo idahwitse, ushobora guhindura umurongo umwe ugatanga PR** — ni bwo buryo bworoshye bwo gutanga umusanzu.
 

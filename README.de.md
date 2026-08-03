@@ -129,7 +129,7 @@ LTE Guard ist ein Wächter, der dauerhaft in der Menüleiste sitzt und die Aufwa
 - 🔌 **Auch für Nicht-USB-Adapter** – greift automatisch auf den Neustart des Netzwerkdienstes zurück
 - 🛠 **Befehls-Hooks in zwei Phasen** – ein Satz läuft **im Moment der erkannten Unterbrechung** (z. B. die Netzwerkeinstellungen öffnen und der Reparatur live zusehen), ein weiterer **nach der Wiederherstellung** (Proxy neu verbinden, neu einwählen usw.)
 - 🔔 **Benachrichtigung nur bei Erfolg** – genau eine Meldung, sobald der Adapter wieder da ist *und* der Internetzugang nachweislich funktioniert (mit Zeitangabe); laufende Reparatur, fehlender Internetzugang und Fehlschlag zeigen sich nur im Menüleistensymbol (Kreisel / `✓8s` / `⚠︎` / `✕`)
-- 🌍 **66 Sprachen** – Oberfläche und Protokoll vollständig lokalisiert; folgt automatisch der Systemsprache, lässt sich im Menü auch manuell umstellen
+- 🌍 **Mehrsprachig** – von chinesischen Dialekten bis zu Minderheitensprachen; Oberfläche und Protokoll vollständig lokalisiert; folgt automatisch der Systemsprache, lässt sich im Menü auch manuell umstellen
 - 🪶 **Ohne Abhängigkeiten** – eine einzige App, kein Daemon, kein Homebrew, keinerlei erhöhte Rechte
 
 ## Installation
@@ -188,7 +188,7 @@ Die übrigen Menüpunkte:
 | USB-Gerät zurücksetzen | Listet alle USB-Geräte auf, softwareseitiges Aus- und Einstecken per Klick – ebenso geeignet für Audio-Interfaces, Webcams, Festplatten und Docks |
 | Menüleistensymbol | Immer anzeigen / nur bei Störungen anzeigen / ausblenden (**nach dem Ausblenden holen Sie es zurück, indem Sie die App aus dem Ordner „Programme“ erneut öffnen**) |
 | Konfigurationsordner öffnen | Öffnet Konfiguration, Protokoll und Sprachordner mit einem Klick im Finder |
-| Sprache | Umschalten zwischen 66 Sprachen; im Untermenü lässt sich die aktuelle Sprache bearbeiten oder der Sprachordner öffnen |
+| Sprache | Sprache umschalten; im Untermenü lässt sich die aktuelle Sprache bearbeiten oder der Sprachordner öffnen |
 
 ## Von rechts nach links geschriebene Sprachen (RTL)
 
@@ -202,7 +202,7 @@ Da die Sprachumschaltung dieses Werkzeugs innerhalb der App selbst umgesetzt ist
 
 ## Mehrsprachigkeit
 
-**66 Sprachen** sind enthalten; beim Start wird automatisch die Systemsprache gewählt, im Menü „Sprache“ lässt sich manuell umschalten (die Auswahl wird gespeichert).
+Viele Sprachen sind enthalten; beim Start wird automatisch die Systemsprache gewählt, im Menü „Sprache“ lässt sich manuell umschalten (die Auswahl wird gespeichert).
 
 Die später hinzugekommenen Sprachen wurden KI-gestützt übersetzt und sind noch nicht von Muttersprachlern geprüft; ein entsprechender Hinweis steht im Kopf der jeweiligen Datei. **Wenn Ihnen eine Formulierung unnatürlich vorkommt, ändern Sie gern einfach eine Zeile und schicken einen Pull Request** – das ist der einfachste Weg, etwas beizutragen.
 

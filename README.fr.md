@@ -121,7 +121,7 @@ LTE Guard est un gardien qui réside dans la barre des menus : il écoute les é
 - 🔌 **Fonctionne aussi hors USB** — bascule automatiquement sur le redémarrage du service réseau
 - 🛠 **Hooks de commandes en deux phases** — un jeu de commandes s'exécute **dès la détection de la coupure** (par exemple ouvrir le panneau Réseau et suivre la réparation en direct), l'autre **après la récupération** (reconnexion d'un proxy, nouvelle numérotation, etc.)
 - 🔔 **Notifications uniquement en cas de succès** — vous recevez exactement une notification, quand l'adaptateur est réparé *et* que l'accès à Internet est réellement vérifié (avec la durée) ; réparation en cours, absence d'Internet et échec ne s'expriment que sur l'icône de la barre des menus (rotation / `✓8s` / `⚠︎` / `✕`)
-- 🌍 **66 langues** — interface et journaux entièrement localisés ; suit automatiquement la langue du système, et se change aussi manuellement depuis le menu
+- 🌍 **Multilingue** — des dialectes chinois aux langues minoritaires ; interface et journaux entièrement localisés ; suit automatiquement la langue du système, et se change aussi manuellement depuis le menu
 - 🪶 **Zéro dépendance** — une seule application, aucun démon à installer, pas besoin de Homebrew, aucune élévation de privilèges requise
 
 ## Installation
@@ -180,7 +180,7 @@ Les autres entrées du menu :
 | Réinitialiser un périphérique USB | Liste tous les périphériques USB, débranchement logiciel en un clic — également valable pour les interfaces audio, webcams, disques et stations d'accueil |
 | Icône de la barre des menus | Toujours afficher / afficher seulement en cas d'anomalie / masquer (**une fois masquée, rouvrez l'app depuis Applications pour la retrouver**) |
 | Ouvrir le dossier de configuration | Ouvre en un clic la configuration, le journal et le dossier des langues dans le Finder |
-| Langue | Bascule entre 66 langues ; le sous-menu permet de modifier la langue courante ou d'ouvrir le dossier des langues |
+| Langue | Changement de langue ; le sous-menu permet de modifier la langue courante ou d'ouvrir le dossier des langues |
 
 ## Langues écrites de droite à gauche (RTL)
 
@@ -194,7 +194,7 @@ Comme le changement de langue de cet outil est implémenté au sein de l'applica
 
 ## Multilingue
 
-**66 langues** sont incluses ; la langue du système est choisie automatiquement au démarrage, et le menu « Langue » permet de changer manuellement (le choix est mémorisé).
+De nombreuses langues sont incluses ; la langue du système est choisie automatiquement au démarrage, et le menu « Langue » permet de changer manuellement (le choix est mémorisé).
 
 Les langues ajoutées ultérieurement ont été traduites avec l'aide de l'IA et n'ont pas encore été relues par des locuteurs natifs ; une mention figure en tête de fichier. **Si une formulation vous semble maladroite, n'hésitez pas à corriger une ligne et à proposer une pull request** — c'est la façon la plus simple de contribuer.
 

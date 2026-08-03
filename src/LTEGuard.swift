@@ -367,7 +367,7 @@ final class I18n {
         let priority = [
             // 汉语及其方言
             "zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei", "cmn-henan",
-            "cmn-shaanxi", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
+            "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
             // 中国少数民族语言
             "bo", "ug", "mn-Mong", "kk",
             // 邻近与友好国家
@@ -1325,8 +1325,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func setIconMode(_ sender: NSMenuItem) {
         guard let mode = IconMode(rawValue: sender.tag) else { return }
+        // 隐藏前先当面说清找回方法（事后通知易被错过）：再打开一次 App 图标即恢复
+        if mode == .hidden {
+            let a = NSAlert()
+            a.messageText = T(51)
+            a.informativeText = I18n.shared.paragraph(T(52))
+            a.alertStyle = .informational
+            a.addButton(withTitle: T(17))
+            a.addButton(withTitle: T(18))
+            NSApp.activate(ignoringOtherApps: true)
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
         IconMode.current = mode
-        if mode == .hidden { notify(T(52)) }
         refreshIcon()
     }
 
