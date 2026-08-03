@@ -1371,6 +1371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private weak var webhookCheckbox: NSButton?
     private weak var webhookPopup: NSPopUpButton?
     private weak var webhookField: NSTextField?
+    private weak var webhookRichPop: NSPopUpButton?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -1488,19 +1489,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Healer.shared.checkAndHeal(reason: "launch")
         }
 
-        // 拍照授权体检：ad-hoc 签名重装后指纹变化，旧的摄像头授权会失配为
-        // "拒绝"且系统不再弹窗——配置了拍照却处于拒绝态时主动提醒，不无声失败
+        // 拍照授权体检：ad-hoc 签名重装后指纹变化，旧的摄像头授权失配为"拒绝"
+        // 且系统不再弹窗。自动处理，不让用户碰命令行：
+        //   1) 程序替用户重置本 App 的摄像头授权记录（回到"未询问"态）
+        //   2) 自动取消拍照勾选（只删程序添加的 --snap 行，手写的不动）
+        //   3) 提醒用户重新勾选——重勾时会正常弹出系统授权窗
         if (cfg0.preCmd + cfg0.postCmd).contains("--snap"),
            AVCaptureDevice.authorizationStatus(for: .video) == .denied {
+            Sys.run("tccutil reset Camera com.oceantang.lteguard >/dev/null 2>&1")
+            func dropSnap(_ text: String) -> String {
+                text.split(separator: "\n", omittingEmptySubsequences: false)
+                    .filter { line in
+                        let t = line.trimmingCharacters(in: .whitespaces)
+                        return !(t.hasSuffix(Detect.mark) && t.contains("--snap"))
+                    }
+                    .joined(separator: "\n")
+            }
+            var c = cfg0
+            c.preCmd = dropSnap(c.preCmd)
+            c.postCmd = dropSnap(c.postCmd)
+            c.save()
+            Sys.log(T(144))
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 let a = NSAlert()
                 a.messageText = T(125)
-                a.informativeText = I18n.shared.paragraph(T(129))
-                a.alertStyle = .warning
+                a.informativeText = I18n.shared.paragraph(T(144))
+                a.alertStyle = .informational
                 a.addButton(withTitle: T(17))
                 NSApp.activate(ignoringOtherApps: true)
                 a.runModal()
-                Sys.run("open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera'", wait: false)
             }
         }
     }
@@ -1794,7 +1811,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 拍照预设的权限门：已授权放行；未询问过→系统弹窗，允许后自动补勾；
         // 曾被拒→提示并打开系统设置的摄像头页（系统不会二次弹窗）
         editor.willEnable = { [weak self] p, btn in
-            guard p.hint.hasPrefix("--snap") else { return true }
+            // 相机门：拍照预设与「图文」webhook（命令里都含 --snap）都要过
+            guard p.command.contains("--snap") else { return true }
             // 首次开启先签署《门卫室拍照功能使用协议》：展示全文→确认→
             // Touch ID/密码验证即签名→存档 agreement/。签过一次不再打扰
             if !Agreement.hasRecord(kind: "camera-enable") {
@@ -1890,7 +1908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PresetCmd(title: T(83), command: soundCmd(initialSound),
                       hint: "afplay"),
             PresetCmd(title: T(92),
-                      command: Self.webhookCmd(platform: whInit.0, url: whInit.1),
+                      command: Self.webhookCmd(platform: whInit.0, url: whInit.1, rich: whInit.2),
                       hint: "curl -s"),
         ]
         presets.append((T(84), common))
@@ -1995,13 +2013,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pop.font = NSFont.systemFont(ofSize: 11)
             pop.target = self
             pop.action = #selector(webhookPlatformChanged(_:))
-            let helpW: CGFloat = 26
+            let helpW: CGFloat = 26, richW: CGFloat = 76
             let field = NSTextField(frame: NSRect(x: 24, y: cb.frame.minY - CGFloat(rowH) + 1,
-                                                  width: CGFloat(W) - 48 - helpW - 6, height: 20))
+                                                  width: CGFloat(W) - 48 - helpW - richW - 12, height: 20))
             field.placeholderString = T(123)
             field.stringValue = whInit.1
             field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             field.delegate = self
+            // 类别：文本 / 图文（图文＝恢复后拍一张门卫室现场照随消息推送，仅支持的平台可选）
+            let rich = NSPopUpButton(frame: NSRect(x: CGFloat(W) - 20 - helpW - richW - 4,
+                                                   y: cb.frame.minY - CGFloat(rowH) - 1,
+                                                   width: richW, height: 24), pullsDown: false)
+            rich.addItems(withTitles: [T(145), T(146)])
+            rich.font = NSFont.systemFont(ofSize: 11)
+            rich.autoenablesItems = false
+            rich.item(at: 1)?.isEnabled = AppDelegate.webhookRichCapable.contains(whInit.0)
+            rich.selectItem(at: whInit.2 && AppDelegate.webhookRichCapable.contains(whInit.0) ? 1 : 0)
+            rich.target = self
+            rich.action = #selector(webhookPlatformChanged(_:))
             // ? ：打开当前平台的官方申请文档，不让用户自己去搜
             let help = NSButton(frame: NSRect(x: CGFloat(W) - 20 - helpW, y: cb.frame.minY - CGFloat(rowH) - 1,
                                               width: helpW, height: 24))
@@ -2012,9 +2041,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             help.action = #selector(webhookHelp(_:))
             doc.addSubview(pop)
             doc.addSubview(field)
+            doc.addSubview(rich)
             doc.addSubview(help)
             self.webhookPopup = pop
             self.webhookField = field
+            self.webhookRichPop = rich
         }
         listScroll.documentView = doc
         container.addSubview(listScroll)
@@ -2055,9 +2086,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         T(122),                              // 自定义
     ] }
 
-    static func webhookCmd(platform: Int, url: String) -> String {
+    /// 支持「图文」的平台：企业微信(base64) / Discord(附件) / Telegram(sendPhoto) / ntfy(PUT)
+    static let webhookRichCapable: Set<Int> = [0, 3, 4, 5]
+
+    static func webhookCmd(platform: Int, url: String, rich: Bool = false) -> String {
         let u = url.isEmpty ? "PASTE_YOUR_WEBHOOK_URL" : url
         let msg = "LTE Guard: \(T(82))"
+        let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
+            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
+        // 图文＝先拍一张门卫室现场照，再随消息推送（仅支持的平台）
+        let snap = "IMG=\"$('\(exe)' --snap webhook)\"; "
+
+        if rich && Self.webhookRichCapable.contains(platform) {
+            switch platform {
+            case 0:   // 企业微信：文本一条 + base64 图片一条
+                let text = "curl -s -X POST -H 'Content-Type: application/json' -d '{\"msgtype\":\"text\",\"text\":{\"content\":\"\(msg)\"}}' '\(u)'"
+                let img = "B64=$(base64 -i \"$IMG\"); MD5=$(md5 -q \"$IMG\"); curl -s -X POST -H 'Content-Type: application/json' -d \"{\\\"msgtype\\\":\\\"image\\\",\\\"image\\\":{\\\"base64\\\":\\\"$B64\\\",\\\"md5\\\":\\\"$MD5\\\"}}\" '\(u)'"
+                return snap + text + "; " + img
+            case 3:   // Discord：multipart 附件 + 文字
+                return snap + "curl -s -F 'payload_json={\"content\":\"\(msg)\"}' -F \"file1=@$IMG\" '\(u)'"
+            case 4:   // Telegram：sendPhoto + caption（chat_id 沿用地址里的 query）
+                let photoURL = u.replacingOccurrences(of: "sendMessage", with: "sendPhoto")
+                return snap + "curl -s -F \"photo=@$IMG\" -F 'caption=\(msg)' '\(photoURL)'"
+            default:  // ntfy：文本一条 + PUT 图片一条
+                return snap + "curl -s -d '\(msg)' '\(u)'; curl -s -T \"$IMG\" -H 'X-Title: LTE Guard' '\(u)'"
+            }
+        }
+
         switch platform {
         case 4:   // Telegram Bot API：地址需含 bot<token>/sendMessage?chat_id=…
             return "curl -s -G '\(u)' --data-urlencode 'text=\(msg)'"
@@ -2076,27 +2131,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// 从配置里程序添加的 webhook 行回显（平台，地址）
-    static func parseWebhook(from postCmd: String) -> (Int, String) {
+    /// 从配置里程序添加的 webhook 行回显（平台，地址，是否图文）
+    static func parseWebhook(from postCmd: String) -> (Int, String, Bool) {
         for raw in postCmd.split(separator: "\n") {
             let s = raw.trimmingCharacters(in: .whitespaces)
-            guard s.hasSuffix(Detect.mark), s.hasPrefix("curl -s") else { continue }
+            guard s.hasSuffix(Detect.mark),
+                  s.hasPrefix("curl -s") || s.contains("--snap webhook") else { continue }
+            let rich = s.contains("--snap webhook")
             let platform: Int
             if s.contains("msgtype")            { platform = 0 }
             else if s.contains("msg_type")      { platform = 1 }
             else if s.contains("--data-urlencode") { platform = 4 }
-            else if s.contains("\"content\":")  { platform = 3 }
+            else if s.contains("sendPhoto")     { platform = 4 }
+            else if s.contains("payload_json") || s.contains("\"content\":") { platform = 3 }
             else if s.contains("\"value1\":")   { platform = 6 }
             else if s.contains("\"text\":")     { platform = 2 }
-            else                                 { platform = 5 }   // 纯文本 = ntfy
+            else                                 { platform = 5 }   // 纯文本/PUT = ntfy
             var url = ""
             if let r = s.range(of: "'http", options: .backwards),
                let end = s.range(of: "'", range: r.upperBound..<s.endIndex) {
                 url = String(s[s.index(after: r.lowerBound)..<end.lowerBound])
+                    .replacingOccurrences(of: "sendPhoto", with: "sendMessage")
             }
-            return (platform, url)
+            return (platform, url, rich)
         }
-        return (0, "")
+        return (0, "", false)
     }
 
     /// 各平台「怎么申请 webhook 地址」的官方文档（官方优先；合并项每家一篇）
@@ -2124,12 +2183,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// 平台或地址变化 → 重新生成命令；若已勾选，文本框中的行就地替换
+    /// 平台/地址/类别变化 → 重新生成命令；若已勾选，文本框中的行就地替换。
+    /// 平台不支持图文时禁用该项并自动回落到文本
     private func webhookUpdate() {
         guard let cb = webhookCheckbox else { return }
         let platform = webhookPopup?.indexOfSelectedItem ?? 0
+        let capable = AppDelegate.webhookRichCapable.contains(platform)
+        webhookRichPop?.item(at: 1)?.isEnabled = capable
+        if !capable, webhookRichPop?.indexOfSelectedItem == 1 { webhookRichPop?.selectItem(at: 0) }
+        let rich = webhookRichPop?.indexOfSelectedItem == 1
         let url = webhookField?.stringValue.trimmingCharacters(in: .whitespaces) ?? ""
-        let cmd = AppDelegate.webhookCmd(platform: platform, url: url)
+        let cmd = AppDelegate.webhookCmd(platform: platform, url: url, rich: rich)
         cb.toolTip = cmd
         postCmdEditor?.updateCommand(for: cb, to: cmd)
     }
