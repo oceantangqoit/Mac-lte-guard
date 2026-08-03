@@ -1005,7 +1005,7 @@ final class I18n {
             "zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei", "cmn-henan",
             "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan", "hak", "wuu", "wuu-shanghai", "lzh",
             // 中国少数民族语言
-            "bo", "ug", "mn-Mong", "kk",
+            "bo", "ug", "mn-Mong", "kk", "ko-CN",
             // 邻近与友好国家
             "ja", "ko", "vi", "th", "km", "my", "ms", "id", "fil",
             "ru", "kk", "uz", "az", "sr", "rw", "sw", "am", "ha",
@@ -2136,7 +2136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let zhCodes: Set<String> = ["zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei",
             "cmn-henan", "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan",
             "hak", "wuu", "wuu-shanghai", "lzh"]
-        let minorityCodes: Set<String> = ["bo", "ug", "mn-Mong", "kk"]
+        let minorityCodes: Set<String> = ["bo", "ug", "mn-Mong", "kk", "ko-CN"]
 
         func langRow(_ code: String, _ name: String) -> NSMenuItem {
             let li = NSMenuItem(title: name, action: #selector(switchLang(_:)), keyEquivalent: "")
