@@ -2075,22 +2075,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             DispatchQueue.global().async { Updater.dailyCheckIfDue() }
         }
 
-        // 一次性迁移：webhook 从命令行搬进「通知与通报」的独立配置，
-        // 此后由程序内建发送（可判成败、能补发、能带图），不再走 shell curl
-        if cfg0.whURL.isEmpty, cfg0.postCmd.contains(Detect.mark) {
+        // Webhook 迁移与去重：地址搬进「通知与通报」的独立配置，命令里程序添加的
+        // 发送行一律清除——现在由程序内建发送，命令里再留一份就会重复发两条。
+        // 每次启动都清（不只首次），因为旧版写入的行有多种形态。
+        do {
             let (p0, u0, r0) = AppDelegate.parseWebhook(from: cfg0.postCmd)
-            if !u0.isEmpty {
+            let hasSendLine = cfg0.postCmd.split(separator: "\n").contains { line in
+                let t = line.trimmingCharacters(in: .whitespaces)
+                return t.hasSuffix(Detect.mark) && t.contains("curl ")
+            }
+            if !u0.isEmpty || hasSendLine {
                 var c = cfg0
-                c.whPlatform = p0; c.whURL = u0; c.whRich = r0
+                if c.whURL.isEmpty, !u0.isEmpty {   // 首次迁移才接管地址，之后以窗口里的为准
+                    c.whPlatform = p0; c.whURL = u0; c.whRich = r0
+                }
                 c.postCmd = c.postCmd.split(separator: "\n", omittingEmptySubsequences: false)
                     .filter { line in
                         let t = line.trimmingCharacters(in: .whitespaces)
-                        return !(t.hasSuffix(Detect.mark)
-                                 && (t.hasPrefix("curl -s") || t.hasPrefix("( ") || t.hasPrefix("IMG1=")))
+                        // 程序添加的、含 curl 的行＝旧的 webhook 发送行，一律清除；
+                        // 用户手写的（无标记）永不触碰
+                        return !(t.hasSuffix(Detect.mark) && t.contains("curl "))
                     }
                     .joined(separator: "\n")
-                c.save(); cfg0 = c
-                Sys.log(T(188))
+                if c.postCmd != cfg0.postCmd || c.whURL != cfg0.whURL {
+                    c.save(); cfg0 = c
+                    Sys.log(T(188))
+                }
             }
         }
 
