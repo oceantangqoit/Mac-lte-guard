@@ -452,6 +452,10 @@ enum CameraSnap {
     /// 锁屏期间欠下的拍照（解锁瞬间统一补拍一张 unlock）
     static var pendingUnlockSnap = false
 
+    /// 本次修复周期实际拍到的照片（tag → 路径）。webhook 图文只认这里的路径，
+    /// 拍不到就发纯文本——绝不退而求其次去找"最近的旧照"
+    static var lastShots: [String: String] = [:]
+
     /// 该有照片却没拍到时提醒用户（多为升级后未重新授权）；每小时最多一次，不刷屏
     private static var lastWarn = Date.distantPast
     static func warnNoPhoto() {
@@ -496,8 +500,15 @@ enum CameraSnap {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let path = "\(dir)/\(f.string(from: Date()))_\(tag).jpg"
 
-        // 等曝光/白平衡稳定再拍，否则常是一张全黑
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.7) {
+        // 唤醒/解锁瞬间摄像头刚上电，曝光与白平衡都还没收敛，直接拍必是黑图。
+        // 这里主动等待相机自报「不再调整」，最长 4 秒；随后再留 0.4 秒余量。
+        DispatchQueue.global().async {
+            let deadline = Date().addingTimeInterval(4)
+            while Date() < deadline {
+                if !cam.isAdjustingExposure && !cam.isAdjustingWhiteBalance { break }
+                Thread.sleep(forTimeInterval: 0.15)
+            }
+            Thread.sleep(forTimeInterval: 0.4)
             let delegate = SnapDelegate { data in
                 session.stopRunning()
                 if let d = data, (try? d.write(to: URL(fileURLWithPath: path))) != nil {
@@ -827,18 +838,28 @@ enum Sys {
         }
         for tag in snapTags {
             if wait {
-                // 等照片落盘再跑 shell——图文 webhook 取"最新一张"，
-                // 异步拍会让它抓到上一次的旧照
+                // 等照片真正落盘再跑 shell，并记住本次的实际路径——
+                // 图文 webhook 只用这些路径，绝不去"找最新文件"（那会捞到旧照）
                 let sem = DispatchSemaphore(value: 0)
-                DispatchQueue.main.async { CameraSnap.take(tag: tag) { _ in sem.signal() } }
-                _ = sem.wait(timeout: .now() + 3.5)
+                DispatchQueue.main.async {
+                    CameraSnap.take(tag: tag) { p in
+                        if let p = p { CameraSnap.lastShots[tag] = p }
+                        sem.signal()
+                    }
+                }
+                _ = sem.wait(timeout: .now() + 8)   // 含曝光收敛等待
             } else {
                 // 断联阶段：拍照与打开网络面板并行，互不拖累
-                DispatchQueue.main.async { CameraSnap.take(tag: tag) { _ in } }
+                DispatchQueue.main.async {
+                    CameraSnap.take(tag: tag) { p in if let p = p { CameraSnap.lastShots[tag] = p } }
+                }
             }
         }
         guard !shellLines.isEmpty else { return "" }
-        return run(prefix + shellLines.joined(separator: "\n"), wait: wait)
+        // 本次拍到什么就给什么；没拍到则为空，命令里会自动退化为纯文本
+        let imgs = "LTE_IMG1='\(CameraSnap.lastShots["wake"] ?? "")'; "
+                 + "LTE_IMG2='\(CameraSnap.lastShots["restored"] ?? "")'; "
+        return run(prefix + imgs + shellLines.joined(separator: "\n"), wait: wait)
     }
 
     /// 一次性迁移：配置与日志的真身从家目录隐藏文件搬到标准
@@ -982,7 +1003,7 @@ final class I18n {
         let priority = [
             // 汉语及其方言
             "zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei", "cmn-henan",
-            "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan", "hak", "wuu", "lzh",
+            "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan", "hak", "wuu", "wuu-shanghai", "lzh",
             // 中国少数民族语言
             "bo", "ug", "mn-Mong", "kk",
             // 邻近与友好国家
@@ -1244,6 +1265,8 @@ final class Healer {
             }
             guard !due.isEmpty else { return }
             due.forEach { self.lastHeal[$0.dev] = now }
+
+            CameraSnap.lastShots.removeAll()   // 本轮从零开始，杜绝沿用上次的照片
 
             // ── 「断联时命令」第一时间抢跑（如打开网络面板——它冷启动要 2-4 秒，
             //    必须赶在拔插前开跑，用户才能看到从断联到恢复的全过程）──
@@ -1881,6 +1904,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in
             guard CameraSnap.pendingUnlockSnap else { return }
             CameraSnap.pendingUnlockSnap = false
+            // 解锁瞬间屏幕刚亮、人还在落座，稍等再拍，画面更亮也更完整
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             CameraSnap.take(tag: "unlock") { path in
                 guard let path = path else { return }
                 let (p, u, rich) = AppDelegate.parseWebhook(from: Config.load().postCmd)
@@ -1889,6 +1914,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     let out = Sys.run(AppDelegate.webhookImagePush(platform: p, url: u, img: path))
                     Sys.log(out.contains("__WH_FAIL__") ? T(153, "unlock") : T(152))
                 }
+            }
             }
         }
         LaunchAtLogin.upgradeIfNeeded()
@@ -2109,7 +2135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func languageItem() -> NSMenuItem {
         let zhCodes: Set<String> = ["zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei",
             "cmn-henan", "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan",
-            "hak", "wuu", "lzh"]
+            "hak", "wuu", "wuu-shanghai", "lzh"]
         let minorityCodes: Set<String> = ["bo", "ug", "mn-Mong", "kk"]
 
         func langRow(_ code: String, _ name: String) -> NSMenuItem {
@@ -2613,7 +2639,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let gh = CameraSnap.dir
         // 只认 10 分钟内的照片（文件名含时间戳，sort 即时间序）——
         // 宁可只发文本，绝不误发上一次的旧照
-        let pick = "GH=\"\(gh)\"; IMG1=$(find \"$GH\" -name '*_wake.jpg' -mmin -10 2>/dev/null | sort | tail -1); IMG2=$(find \"$GH\" -name '*_restored.jpg' -mmin -10 2>/dev/null | sort | tail -1); "
+        let pick = "IMG1=\"${LTE_IMG1:-}\"; IMG2=\"${LTE_IMG2:-}\"; "
 
         if rich && Self.webhookRichCapable.contains(platform) {
             switch platform {
