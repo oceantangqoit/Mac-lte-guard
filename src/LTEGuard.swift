@@ -254,7 +254,8 @@ enum OpsNotify {
     /// 操作代号 → 界面名称（复用既有菜单文案键，无需新翻译）
     static var catalog: [(String, String)] {
         [("editcmd", T(53)), ("target", T(10)), ("heal", T(11)), ("log", T(12)),
-         ("config", T(68)), ("launch", T(30)), ("usb", T(75)), ("quit", T(14))]
+         ("config", T(68)), ("launch", T(30)), ("usb", T(75)),
+         ("update", T(190)), ("quit", T(14))]
     }
 
     static func name(_ op: String) -> String {
@@ -403,6 +404,15 @@ enum Updater {
         a.addButton(withTitle: T(18))
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertFirstButtonReturn else { return }
+
+        // 程序即将被替换、进程随后重启——值守工具该在此刻留痕。
+        // 此时刚下载完，网络必通；同步发送，确保消息先于重启送达。
+        if Config.load().notifyOps.contains("update") {
+            let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+            let host = Host.current().localizedName ?? ""
+            let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+            WebhookSender.send(T(191, cur, version, "\(who)@\(host)"), sync: true)
+        }
 
         if path.hasSuffix(".pkg") {
             NSWorkspace.shared.open(URL(fileURLWithPath: path))   // 系统安装器接手
