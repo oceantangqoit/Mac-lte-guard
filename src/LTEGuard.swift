@@ -253,7 +253,7 @@ enum WebhookSender {
 enum OpsNotify {
     /// 操作代号 → 界面名称（复用既有菜单文案键，无需新翻译）
     static var catalog: [(String, String)] {
-        [("editcmd", T(53)), ("target", T(10)), ("heal", T(11)), ("log", T(12)),
+        [("editcmd", T(53)), ("notify", T(184)), ("target", T(10)), ("heal", T(11)), ("log", T(12)),
          ("config", T(68)), ("launch", T(30)), ("usb", T(75)),
          ("update", T(190)), ("quit", T(14))]
     }
@@ -3384,7 +3384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     @objc func openConfigFolderGated() { Auth.gate("config") { [weak self] in self?.openConfigFolder() } }
     @objc func openLogGated()        { Auth.gate("log") { [weak self] in self?.openLog() } }
-    @objc func editNotifyGated()     { Auth.gate("editcmd") { [weak self] in self?.editNotify() } }
+    @objc func editNotifyGated()     { Auth.gate("notify") { [weak self] in self?.editNotify() } }
 
     /// 开关本身也要防绕过：开启随手，关闭需验证
     @objc func toggleAuthGuard() {
