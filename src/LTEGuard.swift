@@ -1290,10 +1290,17 @@ private let kMsgCanSleep:  UInt32 = 0xE000_0270   // kIOMessageCanSystemSleep
 private let kMsgWillSleep: UInt32 = 0xE000_0280   // kIOMessageSystemWillSleep
 private let kMsgPoweredOn: UInt32 = 0xE000_0300   // kIOMessageSystemHasPoweredOn
 
+/// 合盖状态变化消息（IOPMPrivate.h 的 kIOPMMessageClamshellStateChange：
+/// sys_iokit | sub_iokit_powermanagement | 0x100；messageArgument bit0 = 已合盖）
+private let kMsgClamshellChange: UInt32 = 0xE001_8100
+
 final class WakeWatcher {
     private var rootPort: io_connect_t = 0
     private var notifier: io_object_t = 0
     private var notifyPort: IONotificationPortRef?
+    private var clamshellNote: io_object_t = 0
+    private var clamshellPort: IONotificationPortRef?
+    private var lastClamshell: Bool?   // 消息可能重复投递，只记状态变化
 
     func start() {
         let cb: IOServiceInterestCallback = { refcon, _, msgType, msgArg in
@@ -1320,6 +1327,29 @@ final class WakeWatcher {
                                IONotificationPortGetRunLoopSource(np).takeUnretainedValue(),
                                .commonModes)
         }
+
+        // ── 合盖/开盖时刻：监听 IOPMrootDomain 的 clamshell 状态变化，
+        //    与「系统进入休眠」对照即可看出合盖→入睡的间隔 ──
+        let pmRoot = IOServiceGetMatchingService(Sys.ioDefaultPort,
+                                                 IOServiceMatching("IOPMrootDomain"))
+        guard pmRoot != 0 else { return }
+        let ccb: IOServiceInterestCallback = { refcon, _, msgType, msgArg in
+            guard msgType == kMsgClamshellChange, let refcon = refcon else { return }
+            let me = Unmanaged<WakeWatcher>.fromOpaque(refcon).takeUnretainedValue()
+            let closed = (UInt(bitPattern: msgArg) & 1) == 1
+            guard closed != me.lastClamshell else { return }
+            me.lastClamshell = closed
+            Sys.log(closed ? T(142) : T(143))
+        }
+        clamshellPort = IONotificationPortCreate(Sys.ioDefaultPort)
+        if let cp = clamshellPort {
+            IOServiceAddInterestNotification(cp, pmRoot, kIOGeneralInterest,
+                                             ccb, ref, &clamshellNote)
+            CFRunLoopAddSource(CFRunLoopGetCurrent(),
+                               IONotificationPortGetRunLoopSource(cp).takeUnretainedValue(),
+                               .commonModes)
+        }
+        IOObjectRelease(pmRoot)
     }
 }
 
