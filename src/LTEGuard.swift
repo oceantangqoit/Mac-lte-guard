@@ -14,7 +14,8 @@ import AVFoundation
 /// - 命令行：`LTEGuard --snap [标签]` 第二实例拍完把照片路径打到 stdout 后退出——
 ///   供用户 shell 组合，如 curl -T "$(… --snap)" 'ntfy地址' 把照片推到手机（webhook 接口）
 enum CameraSnap {
-    static var dir: String { I18n.appSupportDir + "/门卫室" }
+    /// 目录实名固定英文（跨语言稳定）；各语言界面里的「门卫室/gatehouse/garita…」都指它
+    static var dir: String { I18n.appSupportDir + "/gatehouse" }
 
     static var authorized: Bool {
         AVCaptureDevice.authorizationStatus(for: .video) == .authorized
@@ -374,6 +375,11 @@ enum Sys {
                 try? fm.removeItem(atPath: new)
             }
             if !fm.fileExists(atPath: new) { try? fm.moveItem(atPath: old, toPath: new) }
+        }
+        // v2.8 短暂用过中文目录名「门卫室」，统一为 gatehouse
+        let oldSnap = I18n.appSupportDir + "/门卫室"
+        if fm.fileExists(atPath: oldSnap) && !fm.fileExists(atPath: CameraSnap.dir) {
+            try? fm.moveItem(atPath: oldSnap, toPath: CameraSnap.dir)
         }
     }
 
