@@ -237,9 +237,18 @@ enum Updater {
             for r in arr {
                 let tag = r["tag_name"] as? String ?? "?"
                 let date = String((r["published_at"] as? String ?? "").prefix(10))
-                let body = (r["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                var body = (r["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                // 去掉自动生成的空壳（只有 compare 链接的说明），换成如实告知
+                let stripped = body
+                    .replacingOccurrences(of: "**Full Changelog**:", with: "")
+                    .replacingOccurrences(of: "Full changelog:", with: "")
+                    .split(separator: "\n")
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("http")
+                           && !$0.trimmingCharacters(in: .whitespaces).isEmpty
+                           && $0.trimmingCharacters(in: .whitespaces) != "---" }
+                if stripped.isEmpty { body = T(183) }
                 text += "── \(tag)  \(date) \(String(repeating: "─", count: max(0, 40 - tag.count)))\n"
-                text += (body.isEmpty ? "-" : body) + "\n\n"
+                text += body + "\n\n"
             }
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try? text.write(toFile: dir + "/commits.txt", atomically: true, encoding: .utf8)

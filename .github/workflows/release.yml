@@ -12,12 +12,22 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 需要历史才能取到该 tag 的提交说明
       - name: Install librsvg (for icon)
         run: brew install librsvg
       - name: Build
         run: ./build.sh "${GITHUB_REF_NAME#v}"
+      # 发布说明＝该 tag 的提交说明原文（中文标题＋六语要点）。
+      # 不用 generate_release_notes：直接推 tag、没有 PR 时它只会吐一条 compare 链接，
+      # App 的「各版本更新概要」抓回来就是空壳。
+      - name: Compose release notes
+        run: |
+          git log -1 --pretty=format:'%s%n%n%b' "$GITHUB_REF_NAME" > NOTES.md
+          printf '\n\n---\n\nFull changelog: %s/compare/...%s\n' \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> NOTES.md
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: NOTES.md
