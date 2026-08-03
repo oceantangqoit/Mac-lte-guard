@@ -1525,7 +1525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         m.addItem(.separator())
         m.addItem(item(T(10), #selector(pickTarget), symbol: "target"))
         m.addItem(item(T(11), #selector(healNow), symbol: "wrench.and.screwdriver"))
-        m.addItem(item(T(12), #selector(openLog), symbol: "doc.text"))
+        m.addItem(item(T(12), #selector(openLogGated), symbol: "doc.text"))
         m.addItem(item(T(68), #selector(openConfigFolderGated), symbol: "folder"))
         m.addItem(item(T(30), #selector(toggleLaunch),
                        state: LaunchAtLogin.isEnabled ? .on : .off, symbol: "power.circle"))
@@ -2364,6 +2364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func editPostCmdGated()    { Auth.gate { [weak self] in self?.editPostCmd() } }
     @objc func quitGated()           { Auth.gate { NSApp.terminate(nil) } }
     @objc func openConfigFolderGated() { Auth.gate { [weak self] in self?.openConfigFolder() } }
+    @objc func openLogGated()        { Auth.gate { [weak self] in self?.openLog() } }
 
     /// 开关本身也要防绕过：开启随手，关闭需验证
     @objc func toggleAuthGuard() {
