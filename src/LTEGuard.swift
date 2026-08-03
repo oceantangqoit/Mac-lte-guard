@@ -916,39 +916,48 @@ final class Healer {
                  : reason == "launch" ? T(130)
                  : T(111)   // 日志里的触发原因也本地化
 
-        if !t.vid.isEmpty {
-            Sys.log(T(93, rTxt, t.dev, "\(t.vid):\(t.pid)"))
-            let out = Sys.run("'\(Sys.usbresetPath)' \(t.vid) \(t.pid) 2>&1")
-            // usbreset 是英文输出的 C 工具：成功时记本地化文案，失败才保留原始输出便于排查
-            Sys.log(out.contains("OK") ? T(112, "\(t.vid):\(t.pid)") : T(113, out))
-        } else if !t.service.isEmpty {
-            Sys.log(T(94, rTxt, t.dev, t.service))
-            Sys.run("networksetup -setnetworkserviceenabled '\(t.service)' off; sleep 3; networksetup -setnetworkserviceenabled '\(t.service)' on")
-        } else {
+        guard !t.vid.isEmpty || !t.service.isEmpty else {
             Sys.log(T(95, rTxt, t.dev))
             AppDelegate.shared?.flashResult("✕")
             return false
         }
 
-        // 1 秒粒度轮询。确认标准是 interfaceHealthy（有 IP 且网关 ping 通）——
-        // 不能只看 ifconfig 的 inet：拔插后头几秒僵尸 IP 仍残留，会误判"3 秒恢复"
-        for _ in 1...30 {
-            Thread.sleep(forTimeInterval: 1)
-            if Sys.interfaceHealthy(t.dev) {
-                let secs = Int(Date().timeIntervalSince(t0).rounded())
-                Sys.log(T(96, t.dev, secs))
-                HealthCache.shared.refresh([t.dev])   // 立刻把图标/菜单状态刷成最新
-
-                // ── 内建联网验证：绑定该接口直测外网，结果进通知+图标 ──
-                let online = Sys.run("curl -s -m 5 --interface \(t.dev) -o /dev/null -w '%{http_code}' http://captive.apple.com")
-                if online == "200" {
-                    Notifier.post(T(105, t.display, secs))
-                    AppDelegate.shared?.flashResult("✓\(secs)s")
-                } else {
-                    AppDelegate.shared?.flashResult("⚠︎")
-                }
-                return true
+        // 最多两次尝试：长时间深睡后设备假死更彻底，一次重枚举可能只让设备
+        // 重新出现、蜂窝会话却没活过来——第二次拔插做彻底复位往往就好了
+        //（实测：5 小时深睡后首次拔插 30 秒不恢复，再拔一次 2 秒恢复）。
+        // 每次尝试轮询 15 秒（正常恢复 2-8 秒，15 秒不恢复基本无望，转重试）
+        for attempt in 1...2 {
+            if !t.vid.isEmpty {
+                Sys.log(T(93, rTxt, t.dev, "\(t.vid):\(t.pid)"))
+                let out = Sys.run("'\(Sys.usbresetPath)' \(t.vid) \(t.pid) 2>&1")
+                // usbreset 是英文输出的 C 工具：成功时记本地化文案，失败才保留原始输出便于排查
+                Sys.log(out.contains("OK") ? T(112, "\(t.vid):\(t.pid)") : T(113, out))
+            } else {
+                Sys.log(T(94, rTxt, t.dev, t.service))
+                Sys.run("networksetup -setnetworkserviceenabled '\(t.service)' off; sleep 3; networksetup -setnetworkserviceenabled '\(t.service)' on")
             }
+
+            // 1 秒粒度轮询。确认标准是 interfaceHealthy（有 IP 且网关 ping 通）——
+            // 不能只看 ifconfig 的 inet：拔插后头几秒僵尸 IP 仍残留，会误判"3 秒恢复"
+            for _ in 1...15 {
+                Thread.sleep(forTimeInterval: 1)
+                if Sys.interfaceHealthy(t.dev) {
+                    let secs = Int(Date().timeIntervalSince(t0).rounded())
+                    Sys.log(T(96, t.dev, secs))
+                    HealthCache.shared.refresh([t.dev])   // 立刻把图标/菜单状态刷成最新
+
+                    // ── 内建联网验证：绑定该接口直测外网，结果进通知+图标 ──
+                    let online = Sys.run("curl -s -m 5 --interface \(t.dev) -o /dev/null -w '%{http_code}' http://captive.apple.com")
+                    if online == "200" {
+                        Notifier.post(T(105, t.display, secs))
+                        AppDelegate.shared?.flashResult("✓\(secs)s")
+                    } else {
+                        AppDelegate.shared?.flashResult("⚠︎")
+                    }
+                    return true
+                }
+            }
+            if attempt == 1 { Sys.log(T(141, t.dev)) }
         }
         Sys.log(T(97, t.dev))
         HealthCache.shared.refresh([t.dev])
