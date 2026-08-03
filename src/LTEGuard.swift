@@ -2322,6 +2322,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let langItem = item(T(13), nil, symbol: "globe")
         let langMenu = sub()
+        // RTL 语言分组的子菜单自身也按右起排布，与条目排版一致
+        func rtlMenu() -> NSMenu {
+            let mm = NSMenu()
+            mm.userInterfaceLayoutDirection = .rightToLeft
+            return mm
+        }
         let disc = NSMenuItem(title: T(69), action: nil, keyEquivalent: "")
         disc.isEnabled = false
         langMenu.addItem(disc)
@@ -2341,7 +2347,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if minMenu.items.count > 0 { langMenu.addItem(minItem) }
 
         langMenu.addItem(.separator())
-        for (c, n) in all where !zhCodes.contains(c) && !minorityCodes.contains(c) {
+        // 自右向左书写的语言收进一组，子菜单整体右起——与它们的行文方向一致
+        let rtlList = all.filter { !zhCodes.contains($0.0) && !minorityCodes.contains($0.0) && I18n.isRTL($0.0) }
+        if !rtlList.isEmpty {
+            let rtlItem = NSMenuItem(title: T(189), action: nil, keyEquivalent: "")
+            let rm = rtlMenu()
+            for (c, n) in rtlList { rm.addItem(langRow(c, n)) }
+            rtlItem.submenu = rm
+            langMenu.addItem(rtlItem)
+        }
+        for (c, n) in all where !zhCodes.contains(c) && !minorityCodes.contains(c) && !I18n.isRTL(c) {
             langMenu.addItem(langRow(c, n))
         }
 
@@ -2572,7 +2587,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if !sounds.contains(initialSound) { initialSound = sounds.first ?? "Glass" }
         func soundCmd(_ name: String) -> String { "afplay /System/Library/Sounds/\(name).aiff" }
-        let whInit = AppDelegate.parseWebhook(from: cfg.postCmd)   // webhook 回显（平台，地址）
 
         let appExe = Bundle.main.bundlePath + "/Contents/MacOS/" +
             (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
@@ -2622,8 +2636,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if !found.isEmpty { presets.append((T(85), found)) }
 
-        // 「操作通报」组：勾选的敏感操作发生时发 webhook（独立开关，不进命令文本）
-        var opBoxes: [(NSButton, String)] = []
 
         // 布局
         var rows: [NSView] = []
@@ -2644,23 +2656,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // 显示正常但命中测试到不了（macOS 不裁剪显示、但按父边界命中）
                 if p.hint == "afplay" { self.soundCheckbox = cb }
                 rows.append(cb)
-                if p.hint == "curl -s" {
-                    self.webhookCheckbox = cb
-                    rows.append(NSView())   // 占位一行，稍后放地址输入框
-                }
             }
         }
-        let opHeader = NSTextField(labelWithString: T(176))
-        opHeader.font = NSFont.boldSystemFont(ofSize: 11)
-        opHeader.textColor = .secondaryLabelColor
-        rows.append(opHeader)
-        for (code, title) in OpsNotify.catalog {
-            let cb = NSButton(checkboxWithTitle: title, target: nil, action: nil)
-            cb.state = cfg.notifyOps.contains(code) ? .on : .off
-            rows.append(cb)
-            opBoxes.append((cb, code))
-        }
-
         let rowH = 22
         let contentH = max(180, rows.count * rowH + 8)
         let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16, height: contentH))
@@ -2694,53 +2691,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.soundPopup = pop
         }
 
-        // Webhook 行：平台下拉在勾选行右侧，地址输入占其下一行（缩进对齐）
-        if let cb = self.webhookCheckbox {
-            let popW: CGFloat = 200
-            cb.setFrameSize(NSSize(width: CGFloat(W) - 24 - popW - 12, height: 18))
-            let pop = NSPopUpButton(frame: NSRect(x: CGFloat(W) - 20 - popW, y: cb.frame.minY - 3,
-                                                  width: popW, height: 24), pullsDown: false)
-            pop.addItems(withTitles: AppDelegate.webhookPlatforms)
-            pop.selectItem(at: whInit.0)
-            pop.font = NSFont.systemFont(ofSize: 11)
-            pop.target = self
-            pop.action = #selector(webhookPlatformChanged(_:))
-            let helpW: CGFloat = 26, richW: CGFloat = 76
-            let field = NSTextField(frame: NSRect(x: 24, y: cb.frame.minY - CGFloat(rowH) + 1,
-                                                  width: CGFloat(W) - 48 - helpW - richW - 12, height: 20))
-            field.placeholderString = T(123)
-            field.stringValue = whInit.1
-            field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-            field.delegate = self
-            // 类别：文本 / 图文（图文＝恢复后拍一张门卫室现场照随消息推送，仅支持的平台可选）
-            let rich = NSPopUpButton(frame: NSRect(x: CGFloat(W) - 20 - helpW - richW - 4,
-                                                   y: cb.frame.minY - CGFloat(rowH) - 1,
-                                                   width: richW, height: 24), pullsDown: false)
-            rich.addItems(withTitles: [T(145), T(146)])
-            rich.font = NSFont.systemFont(ofSize: 11)
-            rich.autoenablesItems = false
-            let snapOn = (cfg.preCmd + cfg.postCmd).contains("--snap")
-            let richOK = AppDelegate.webhookRichCapable.contains(whInit.0) && snapOn
-            rich.item(at: 1)?.isEnabled = richOK
-            rich.selectItem(at: whInit.2 && richOK ? 1 : 0)
-            rich.target = self
-            rich.action = #selector(webhookPlatformChanged(_:))
-            // ? ：打开当前平台的官方申请文档，不让用户自己去搜
-            let help = NSButton(frame: NSRect(x: CGFloat(W) - 20 - helpW, y: cb.frame.minY - CGFloat(rowH) - 1,
-                                              width: helpW, height: 24))
-            help.bezelStyle = .helpButton
-            help.title = ""
-            help.toolTip = T(124)
-            help.target = self
-            help.action = #selector(webhookHelp(_:))
-            doc.addSubview(pop)
-            doc.addSubview(field)
-            doc.addSubview(rich)
-            doc.addSubview(help)
-            self.webhookPopup = pop
-            self.webhookField = field
-            self.webhookRichPop = rich
-        }
         listScroll.documentView = doc
         container.addSubview(listScroll)
 
@@ -2761,7 +2711,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         cfg.preCmd = clean(editor.currentPre)
         cfg.postCmd = clean(editor.currentPost)
-        cfg.notifyOps = Set(opBoxes.filter { $0.0.state == .on }.map { $0.1 })
         cfg.save()
         notify(T(55))
     }
