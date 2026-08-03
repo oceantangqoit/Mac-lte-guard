@@ -2447,10 +2447,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func switchLang(_ sender: NSMenuItem) {
         guard let code = sender.representedObject as? String else { return }
+        let wasRTL = UserDefaults.standard.bool(forKey: "NSForceRightToLeftWritingDirection")
+        let nowRTL = I18n.isRTL(code)
         I18n.shared.load(preferred: code)
         Sys.log(T(116, code))
-        notify(T(24))
         refreshIcon()
+
+        // 菜单的展开方向、箭头朝向由「应用级」书写方向决定，单个菜单的
+        // layoutDirection 只管内容对齐。切到 RTL 语言时打开系统的应用级
+        // RTL 开关，重启后子菜单才会真正向左展开、箭头指左。
+        guard nowRTL != wasRTL else { notify(T(24)); return }
+        UserDefaults.standard.set(nowRTL, forKey: "NSForceRightToLeftWritingDirection")
+        UserDefaults.standard.set(nowRTL, forKey: "AppleTextDirection")
+        UserDefaults.standard.synchronize()
+
+        let a = NSAlert()
+        a.messageText = T(24)
+        a.informativeText = I18n.shared.paragraph(T(192))
+        a.addButton(withTitle: T(193))   // 立即重启
+        a.addButton(withTitle: T(18))
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+
+        // 重启自身：新进程带 --background，与 LaunchAgent 一致
+        let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
+            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
+        Sys.run("(sleep 1; '\(exe)' --background &) >/dev/null 2>&1 &", wait: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
     }
 
     @objc func setIconMode(_ sender: NSMenuItem) {
