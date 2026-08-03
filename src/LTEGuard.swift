@@ -1074,7 +1074,7 @@ final class WakeWatcher {
 // MARK: - App
 
 @main
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSTextFieldDelegate {
     static var shared: AppDelegate?
     private var statusItem: NSStatusItem!
     private let watcher = WakeWatcher()
@@ -1085,6 +1085,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private weak var soundCheckbox: NSButton?
     /// 预览播放器。必须持有——局部变量会在函数返回时释放，声音戛然而止
     private var previewPlayer: NSSound?
+    /// Webhook 平台选择与地址输入（对话框存活期间有效）
+    private weak var webhookCheckbox: NSButton?
+    private weak var webhookPopup: NSPopUpButton?
+    private weak var webhookField: NSTextField?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -1493,6 +1497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if !sounds.contains(initialSound) { initialSound = sounds.first ?? "Glass" }
         func soundCmd(_ name: String) -> String { "afplay /System/Library/Sounds/\(name).aiff" }
+        let whInit = AppDelegate.parseWebhook(from: cfg.postCmd)   // webhook 回显（平台，地址）
 
         let common: [PresetCmd] = [
             PresetCmd(title: T(80),
@@ -1501,8 +1506,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PresetCmd(title: T(83), command: soundCmd(initialSound),
                       hint: "afplay"),
             PresetCmd(title: T(92),
-                      command: "curl -s -X POST -H 'Content-Type: application/json' -d '{\"text\":\"LTE Guard: \(T(82))\"}' 'PASTE_YOUR_WEBHOOK_URL'",
-                      hint: "PASTE_YOUR_WEBHOOK_URL"),
+                      command: Self.webhookCmd(platform: whInit.0, url: whInit.1),
+                      hint: "curl -s"),
         ]
         presets.append((T(84), common))
 
@@ -1551,11 +1556,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cb.toolTip = p.command
                 editor.register(cb, p)
 
-                // 提示音行：下拉框与预览按钮不包容器、稍后直接放进列表视图——
+                // 提示音/Webhook 行：附加控件稍后直接放进列表视图——
                 // 包在 18pt 高的行容器里时，24pt 高的控件会越界，
                 // 显示正常但命中测试到不了（macOS 不裁剪显示、但按父边界命中）
                 if p.hint == "afplay" { self.soundCheckbox = cb }
                 rows.append(cb)
+                if p.hint == "curl -s" {
+                    self.webhookCheckbox = cb
+                    rows.append(NSView())   // 占位一行，稍后放地址输入框
+                }
             }
         }
         let rowH = 22
@@ -1590,6 +1599,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             doc.addSubview(play)
             self.soundPopup = pop
         }
+
+        // Webhook 行：平台下拉在勾选行右侧，地址输入占其下一行（缩进对齐）
+        if let cb = self.webhookCheckbox {
+            let popW: CGFloat = 200
+            cb.setFrameSize(NSSize(width: CGFloat(W) - 24 - popW - 12, height: 18))
+            let pop = NSPopUpButton(frame: NSRect(x: CGFloat(W) - 20 - popW, y: cb.frame.minY - 3,
+                                                  width: popW, height: 24), pullsDown: false)
+            pop.addItems(withTitles: AppDelegate.webhookPlatforms)
+            pop.selectItem(at: whInit.0)
+            pop.font = NSFont.systemFont(ofSize: 11)
+            pop.target = self
+            pop.action = #selector(webhookPlatformChanged(_:))
+            let field = NSTextField(frame: NSRect(x: 24, y: cb.frame.minY - CGFloat(rowH) + 1,
+                                                  width: CGFloat(W) - 48, height: 20))
+            field.placeholderString = T(123)
+            field.stringValue = whInit.1
+            field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            field.delegate = self
+            doc.addSubview(pop)
+            doc.addSubview(field)
+            self.webhookPopup = pop
+            self.webhookField = field
+        }
         listScroll.documentView = doc
         container.addSubview(listScroll)
 
@@ -1612,6 +1644,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cfg.postCmd = clean(editor.currentPost)
         cfg.save()
         notify(T(55))
+    }
+
+    // MARK: Webhook 多平台
+
+    /// 平台顺序与 popup 一致；同格式平台已合并。
+    /// 计算属性——切换界面语言后平台名跟着变
+    static var webhookPlatforms: [String] { [
+        T(120),                              // 企业微信 / 钉钉
+        T(121),                              // 飞书 (Lark)
+        "Slack / Teams / Google Chat",
+        "Discord",
+        "Telegram",
+        "ntfy.sh",
+        "IFTTT",
+        T(122),                              // 自定义
+    ] }
+
+    static func webhookCmd(platform: Int, url: String) -> String {
+        let u = url.isEmpty ? "PASTE_YOUR_WEBHOOK_URL" : url
+        let msg = "LTE Guard: \(T(82))"
+        switch platform {
+        case 4:   // Telegram Bot API：地址需含 bot<token>/sendMessage?chat_id=…
+            return "curl -s -G '\(u)' --data-urlencode 'text=\(msg)'"
+        case 5:   // ntfy.sh：纯文本 POST 到 topic 地址
+            return "curl -s -d '\(msg)' '\(u)'"
+        default:
+            let json: String
+            switch platform {
+            case 0: json = "{\"msgtype\":\"text\",\"text\":{\"content\":\"\(msg)\"}}"
+            case 1: json = "{\"msg_type\":\"text\",\"content\":{\"text\":\"\(msg)\"}}"
+            case 3: json = "{\"content\":\"\(msg)\"}"
+            case 6: json = "{\"value1\":\"\(msg)\"}"
+            default: json = "{\"text\":\"\(msg)\"}"   // Slack/Teams/GChat 与自定义
+            }
+            return "curl -s -X POST -H 'Content-Type: application/json' -d '\(json)' '\(u)'"
+        }
+    }
+
+    /// 从配置里程序添加的 webhook 行回显（平台，地址）
+    static func parseWebhook(from postCmd: String) -> (Int, String) {
+        for raw in postCmd.split(separator: "\n") {
+            let s = raw.trimmingCharacters(in: .whitespaces)
+            guard s.hasSuffix(Detect.mark), s.hasPrefix("curl -s") else { continue }
+            let platform: Int
+            if s.contains("msgtype")            { platform = 0 }
+            else if s.contains("msg_type")      { platform = 1 }
+            else if s.contains("--data-urlencode") { platform = 4 }
+            else if s.contains("\"content\":")  { platform = 3 }
+            else if s.contains("\"value1\":")   { platform = 6 }
+            else if s.contains("\"text\":")     { platform = 2 }
+            else                                 { platform = 5 }   // 纯文本 = ntfy
+            var url = ""
+            if let r = s.range(of: "'http", options: .backwards),
+               let end = s.range(of: "'", range: r.upperBound..<s.endIndex) {
+                url = String(s[s.index(after: r.lowerBound)..<end.lowerBound])
+            }
+            return (platform, url)
+        }
+        return (0, "")
+    }
+
+    /// 平台或地址变化 → 重新生成命令；若已勾选，文本框中的行就地替换
+    private func webhookUpdate() {
+        guard let cb = webhookCheckbox else { return }
+        let platform = webhookPopup?.indexOfSelectedItem ?? 0
+        let url = webhookField?.stringValue.trimmingCharacters(in: .whitespaces) ?? ""
+        let cmd = AppDelegate.webhookCmd(platform: platform, url: url)
+        cb.toolTip = cmd
+        postCmdEditor?.updateCommand(for: cb, to: cmd)
+    }
+
+    @objc private func webhookPlatformChanged(_ sender: NSPopUpButton) { webhookUpdate() }
+
+    /// URL 输入实时联动（NSTextFieldDelegate）
+    func controlTextDidChange(_ obj: Notification) {
+        if (obj.object as? NSTextField) === webhookField { webhookUpdate() }
     }
 
     /// 用户换了提示音：更新预设命令；若已勾选，文本框里的命令行就地替换
