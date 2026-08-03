@@ -426,18 +426,11 @@ enum CameraSnap {
     }
 
     static func take(tag: String, completion: @escaping (String?) -> Void) {
-        // 授权把关：未询问则当场请求（弹系统窗，授权后立刻补拍）；
-        // 已拒绝则记日志说明——绝不静默失败
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: break
-        case .notDetermined:
-            Sys.log(T(157))
-            AVCaptureDevice.requestAccess(for: .video) { ok in
-                if ok { DispatchQueue.main.async { take(tag: tag, completion: completion) } }
-                else { Sys.log(T(129)); completion(nil) }
-            }
-            return
-        default:
+        // 授权把关：这里【不】弹授权窗——拍照多发生在唤醒/锁屏等用户不在场
+        // 的时刻，弹窗无人应答只会白白错过时机。授权在「新版首次运行」与
+        // 「勾选拍照时」这两个用户在场的时机办妥（见 AppDelegate）。
+        // 此处只如实记录并提醒，绝不静默失败。
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
             Sys.log(T(129))
             warnNoPhoto()
             completion(nil)
@@ -1876,35 +1869,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             DispatchQueue.global().async { Updater.dailyCheckIfDue() }
         }
 
-        // 拍照授权体检：ad-hoc 签名重装后指纹变化，旧的摄像头授权失配为"拒绝"
-        // 且系统不再弹窗。自动处理，不让用户碰命令行：
-        //   1) 程序替用户重置本 App 的摄像头授权记录（回到"未询问"态）
-        //   2) 自动取消拍照勾选（只删程序添加的 --snap 行，手写的不动）
-        //   3) 提醒用户重新勾选——重勾时会正常弹出系统授权窗
-        if (cfg0.preCmd + cfg0.postCmd).contains("--snap"),
-           AVCaptureDevice.authorizationStatus(for: .video) == .denied {
-            Sys.run("tccutil reset Camera com.oceantang.lteguard >/dev/null 2>&1")
-            func dropSnap(_ text: String) -> String {
-                text.split(separator: "\n", omittingEmptySubsequences: false)
-                    .filter { line in
-                        let t = line.trimmingCharacters(in: .whitespaces)
-                        return !(t.hasSuffix(Detect.mark) && t.contains("--snap"))
+        // 新版本首次运行：此刻用户刚装完、人就在电脑前，是办妥摄像头授权的
+        // 唯一好时机——重装会让旧授权失配，而唤醒/锁屏时弹窗根本没人点。
+        // 拒绝态先重置授权记录，这样能直接弹系统窗，不必让用户翻系统设置。
+        let lastRun = UserDefaults.standard.string(forKey: "lastRunVersion") ?? ""
+        if lastRun != ver {
+            UserDefaults.standard.set(ver, forKey: "lastRunVersion")
+            let st = AVCaptureDevice.authorizationStatus(for: .video)
+            if (cfg0.preCmd + cfg0.postCmd).contains("--snap"), st != .authorized {
+                Sys.log(T(173, ver))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    let a = NSAlert()
+                    a.messageText = T(125)
+                    a.informativeText = I18n.shared.paragraph(T(174))
+                    a.alertStyle = .informational
+                    a.addButton(withTitle: T(17))
+                    a.addButton(withTitle: T(18))
+                    NSApp.activate(ignoringOtherApps: true)
+                    guard a.runModal() == .alertFirstButtonReturn else { return }
+                    if st != .notDetermined {
+                        Sys.run("tccutil reset Camera com.oceantang.lteguard >/dev/null 2>&1")
                     }
-                    .joined(separator: "\n")
-            }
-            var c = cfg0
-            c.preCmd = dropSnap(c.preCmd)
-            c.postCmd = dropSnap(c.postCmd)
-            c.save()
-            Sys.log(T(144))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                let a = NSAlert()
-                a.messageText = T(125)
-                a.informativeText = I18n.shared.paragraph(T(144))
-                a.alertStyle = .informational
-                a.addButton(withTitle: T(17))
-                NSApp.activate(ignoringOtherApps: true)
-                a.runModal()
+                    AVCaptureDevice.requestAccess(for: .video) { ok in
+                        Sys.log(ok ? T(175) : T(129))
+                        if !ok {
+                            Auth.onMain {
+                                Sys.run("open 'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera'", wait: false)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
