@@ -777,14 +777,21 @@ extension CameraSnap {
     /// 探测模式：连续采样 8 秒，打印亮度/ISO/快门随时间的变化，用于定标最佳快门时机。
     /// 走 App 自身的二进制，因而沿用已授予的摄像头权限，不必重新授权。
     static func probeExposure() -> Never {
+        // 结果写文件而不是 stdout：这个模式要靠 LaunchServices 启动
+        // （open -a …），App 才是自己的责任进程、才用得上自己的摄像头授权；
+        // 从终端直接执行二进制时 TCC 会把责任算到终端头上，一律拒绝
+        let out = I18n.appSupportDir + "/exposure-probe.tsv"
+        func dump(_ s: String) {
+            try? s.write(toFile: out, atomically: true, encoding: .utf8)
+        }
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
-            print("摄像头未授权，无法探测"); exit(1)
+            dump("摄像头未授权，无法探测\n"); exit(1)
         }
         let session = AVCaptureSession()
         session.sessionPreset = .photo
         guard let cam = AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: cam),
-              session.canAddInput(input) else { print("打不开摄像头"); exit(1) }
+              session.canAddInput(input) else { dump("打不开摄像头\n"); exit(1) }
         session.addInput(input)
         let probe = LumaProbe()
         probe.device = cam
@@ -793,16 +800,17 @@ extension CameraSnap {
         vout.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:
                                 kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
         vout.setSampleBufferDelegate(probe, queue: DispatchQueue(label: "luma"))
-        guard session.canAddOutput(vout) else { print("加不上视频输出"); exit(1) }
+        guard session.canAddOutput(vout) else { dump("加不上视频输出\n"); exit(1) }
         session.addOutput(vout)
         session.startRunning()
         DispatchQueue.global().async {
             Thread.sleep(forTimeInterval: 8)
             session.stopRunning()
-            print("秒数\t亮度%\t调整中")
+            var text = "秒数\t亮度%\t调整中\n"
             for s in probe.trace {
-                print(String(format: "%.2f\t%.1f\t%@", s.t, s.luma * 100, s.adj ? "是" : "否"))
+                text += String(format: "%.2f\t%.1f\t%@\n", s.t, s.luma * 100, s.adj ? "是" : "否")
             }
+            dump(text)
             exit(0)
         }
         RunLoop.main.run()
@@ -877,6 +885,10 @@ struct Config {
     var whPlatform = 0
     var whURL = ""
     var whRich = false
+    /// 被守护的 USB 设备（vid、pid、名称）。与网卡守护刻意分开：
+    /// 网卡有 IP、网关、ping 三重判据可断健康，普通 USB 设备没有——
+    /// 守护它只能是「唤醒后无条件复位一次」，风险与语义都不同，不该混为一谈
+    var usbGuards: [(vid: String, pid: String, name: String)] = []
     /// 静默更新的查询间隔（秒）。0 表示「从不」，即关闭静默更新。
     /// 档位见 Updater.intervalChoices：30 秒到 1 个月，开发调试用得上最短那档
     var updateInterval = 0
@@ -914,6 +926,16 @@ struct Config {
                 case "WEBHOOK_RICH":     c.whRich = (v == "1")
                 case "SILENT_UPDATE":    break          // 旧键，已由 UPDATE_INTERVAL 取代
                 default:                 c.updateInterval = max(0, Int(v) ?? 0)
+                }
+                continue
+            }
+            if key == "USB_GUARDS" {
+                let v = Config.parseQuoted(raw) ?? Config.unescape(
+                    raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'")))
+                c.usbGuards = v.split(separator: "\n").compactMap { row in
+                    let f = row.components(separatedBy: "\t")
+                    guard f.count >= 3, !f[0].isEmpty else { return nil }
+                    return (vid: f[0], pid: f[1], name: f[2])
                 }
                 continue
             }
@@ -962,6 +984,7 @@ struct Config {
         # LTE Guard 配置（由 App 维护，也可手改）
         # TARGETS：每行一个治愈对象，字段以制表符分隔：接口\t服务名\tUSB_VID\tUSB_PID
         TARGETS='\(Config.escape(rows))'
+        USB_GUARDS='\(Config.escape(usbGuards.map { "\($0.vid)\t\($0.pid)\t\($0.name)" }.joined(separator: "\n")))'
         NOTIFY_OPS='\(notifyOps.sorted().joined(separator: ","))'
         WEBHOOK_PLATFORM='\(whPlatform)'
         WEBHOOK_URL='\(whURL)'
@@ -1615,6 +1638,17 @@ final class Healer {
         }
     }
 
+    /// 对勾选守护的 USB 设备逐个软件拔插。放在网卡自愈之前跑：
+    /// 若被守护的正是网卡所在的那只 USB 设备，先复位反而省了后面一遍
+    private func resetGuardedUSB() {
+        let guards = Config.load().usbGuards
+        guard !guards.isEmpty else { return }
+        for g in guards {
+            let out = Sys.run("'\(Sys.usbresetPath)' \(g.vid) \(g.pid) 2>&1")
+            Sys.log(out.contains("OK") ? T(214, g.name) : T(113, out))
+        }
+    }
+
     func checkAndHeal(reason: String) {
         q.async {
             let cfg = Config.load()
@@ -1642,6 +1676,10 @@ final class Healer {
             due.forEach { self.lastHeal[$0.dev] = now }
 
             CameraSnap.lastShots.removeAll()   // 本轮从零开始，杜绝沿用上次的照片
+
+            // 被守护的 USB 设备：唤醒后无条件复位一次。它们没有通断可验，
+            // 只能这么办——所以勾选时才要当面把读写中断的风险讲清并留档
+            if reason != "manual" { self.resetGuardedUSB() }
 
             // ── 「断联时命令」第一时间抢跑（如打开网络面板——它冷启动要 2-4 秒，
             //    必须赶在拔插前开跑，用户才能看到从断联到恢复的全过程）──
@@ -2533,6 +2571,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func usbResetItem() -> NSMenuItem {
         let usbItem = item(T(75), nil, symbol: "cable.connector")
         let usbMenu = sub()
+        // 先给「持续守护」，再给「这一次复位一下」——前者是设置，后者是动作
+        usbMenu.addItem(item(T(210), #selector(pickUSBGuardsGated), symbol: "checklist"))
+        let guarded = Config.load().usbGuards
+        if !guarded.isEmpty {
+            let g = NSMenuItem(title: "　" + guarded.map(\.name).joined(separator: "、"),
+                               action: nil, keyEquivalent: "")
+            g.isEnabled = false
+            usbMenu.addItem(g)
+        }
+        usbMenu.addItem(.separator())
         let hint = NSMenuItem(title: T(76), action: nil, keyEquivalent: "")
         hint.isEnabled = false
         usbMenu.addItem(hint)
@@ -3233,6 +3281,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// 对任意 USB 设备执行软件拔插。用于音频接口、摄像头、外置硬盘、扩展坞等
     /// 同样会在睡眠唤醒后假死、平时只能物理拔插的设备。
+    @objc func pickUSBGuardsGated() { Auth.gate("usb") { self.pickUSBGuards() } }
+
+    /// 「选择要守护的 USB 设备」：勾选后每次唤醒自动做一次软件拔插。
+    /// 与网卡守护分设两处，正因为判据不同——网卡能验通断，普通 USB 设备
+    /// 验不了，只能无条件复位，而复位会打断正在进行的读写。这个代价必须
+    /// 当面讲清，并按签约留档，不能靠一行小字带过。
+    @objc func pickUSBGuards() {
+        var cfg = Config.load()
+        let devs = Sys.usbDevices()
+        let a = NSAlert()
+        a.messageText = T(210)
+        a.informativeText = I18n.shared.paragraph(T(211))
+        a.alertStyle = .warning
+
+        let W: CGFloat = 460, rh: CGFloat = 24
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 190))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16,
+                                       height: max(190, CGFloat(devs.count) * rh + 8)))
+        var boxes: [(NSButton, (String, String, String))] = []
+        var y = doc.frame.height - rh
+        for d in devs {
+            let cb = NSButton(checkboxWithTitle: "\(d.2)　(\(d.0):\(d.1))", target: nil, action: nil)
+            cb.state = cfg.usbGuards.contains { $0.vid == d.0 && $0.pid == d.1 } ? .on : .off
+            cb.frame = NSRect(x: 6, y: y, width: W - 32, height: 20)
+            doc.addSubview(cb)
+            boxes.append((cb, d))
+            y -= rh
+        }
+        scroll.documentView = doc
+        a.accessoryView = scroll
+        a.addButton(withTitle: T(17))
+        a.addButton(withTitle: T(18))
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+
+        let picked = boxes.filter { $0.0.state == .on }
+            .map { (vid: $0.1.0, pid: $0.1.1, name: $0.1.2) }
+        let before = Set(cfg.usbGuards.map { "\($0.vid):\($0.pid)" })
+        let after = Set(picked.map { "\($0.vid):\($0.pid)" })
+        guard before != after else { return }
+
+        func commit(_ method: String) {
+            cfg.usbGuards = picked
+            cfg.save()
+            let names = picked.isEmpty ? "—" : picked.map(\.name).joined(separator: "、")
+            Sys.log(T(212, names))
+            self.notify(T(212, names))
+            self.refreshIcon()
+            _ = method
+        }
+        // 新勾选了设备才需要签约——取消勾选是解除风险，不必再签一次
+        if after.subtracting(before).isEmpty {
+            commit("")
+        } else {
+            Auth.sign { method in
+                Agreement.record(kind: "usb-guard",
+                                 subject: picked.map { "\($0.name) \($0.vid):\($0.pid)" }
+                                     .joined(separator: " / "),
+                                 terms: T(210) + "\n\n" + T(211), method: method)
+                Auth.onMain { commit(method) }
+            }
+        }
+    }
+
     @objc func resetUSBDevice(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String else { return }
         let parts = raw.split(separator: " ", maxSplits: 2).map(String.init)
