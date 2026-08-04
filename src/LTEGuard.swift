@@ -451,9 +451,19 @@ enum Updater {
         # 服务先卸下来，否则 pkill 之后 launchd 立刻把旧版拉起来，
         # 正撞上替换过程——上一版的死循环就有它一份
         launchctl bootout "gui/\(uid)/$LABEL" 2>/dev/null
+        # 开了「永不退出」时 KeepAlive 是无条件的：服务没卸干净就 pkill，
+        # launchd 会立刻把旧版拉起来，正撞上替换过程。所以必须确认真卸掉了；
+        # 卸不掉就别硬来，退给系统安装器——它自己会处理运行中的实例
+        for i in 1 2 3 4 5 6 7 8; do
+            launchctl print "gui/\(uid)/$LABEL" >/dev/null 2>&1 || break
+            sleep 0.4
+        done
+        if launchctl print "gui/\(uid)/$LABEL" >/dev/null 2>&1; then fallback; fi
         for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -x LTEGuard >/dev/null || break; sleep 0.5; done
         pkill -x LTEGuard 2>/dev/null
         sleep 1
+        # 杀完再确认一次没被拉起来——这是 KeepAlive 唯一可能钻空子的地方
+        pgrep -x LTEGuard >/dev/null && fallback
 
         # 原子替换：旧的先挪开，新的到位后才删旧的。
         # 「先删后拷」中途出错，用户就没有 App 了——这一步不许有这种可能
