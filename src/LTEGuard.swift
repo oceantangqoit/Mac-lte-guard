@@ -1275,15 +1275,59 @@ final class I18n {
     var isRTL: Bool { I18n.isRTL(code) }
 
     /// 某语言是否自右向左书写（按语言代码判断，与当前界面语言无关）
+    /// lzh（文言）依传统竖排右起之制，取右起排布：菜单右起、子菜单向左而开。
+    /// 汉字为强左向字符，行内仍左起——此为 Unicode 双向算法所定，不作反转。
     static func isRTL(_ code: String) -> Bool {
         let base = code.split(separator: "-").first.map(String.init) ?? code
-        return ["ar", "he", "fa", "ur", "ug", "ps", "ckb", "yi", "dv"].contains(base)
+        return ["ar", "he", "fa", "ur", "ug", "ps", "ckb", "yi", "dv", "lzh"].contains(base)
     }
 
     // Unicode 双向算法隔离符（W3C i18n 推荐做法）
     static let FSI = "\u{2068}"   // First Strong Isolate
     static let PDI = "\u{2069}"   // Pop Directional Isolate
     static let RLM = "\u{200F}"           // Right-to-Left Mark
+
+    /// 是否逐字倒排显示。仅文言（lzh）如此：汉字是强左向字符，Unicode
+    /// 双向算法不会把它们右起排布，故由程序显式倒序。
+    /// 阿拉伯语、希伯来语等真正的 RTL 文字自有双向算法处理，绝不走这条路径。
+    var isGlyphReversed: Bool { code == "lzh" }
+
+    /// 逐字倒排：汉字一字一序自右而左，拉丁词、数字、占位符整体保序
+    /// （"USB" 倒成 "BSU" 便不可读），成对括号引号左右互易。
+    /// 行序不动，只倒每行之内——竖排右起是行的次序，非段落的次序。
+    static func reverseGlyphs(_ s: String) -> String {
+        let mirror: [Character: Character] = [
+            "「": "」", "」": "「", "『": "』", "』": "『", "（": "）", "）": "（",
+            "(": ")", ")": "(", "《": "》", "》": "《", "〈": "〉", "〉": "〈",
+            "【": "】", "】": "【", "[": "]", "]": "[", "〔": "〕", "〕": "〔",
+        ]
+        // 拉丁字母、数字及其粘连符号聚为一词，词内保持原序
+        func joinable(_ c: Character) -> Bool {
+            (c.isASCII && (c.isLetter || c.isNumber)) || "{}._:/@-+#".contains(c)
+        }
+        return s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let cs = Array(line)
+            var toks: [String] = []
+            var buf = ""
+            var i = 0
+            while i < cs.count {
+                let c = cs[i]
+                if joinable(c) {
+                    buf.append(c)
+                } else if c == " " && !buf.isEmpty
+                            && i + 1 < cs.count && joinable(cs[i + 1]) {
+                    // "LTE Guard" 这类词组中间的空格并入词内，不拆开
+                    buf.append(c)
+                } else {
+                    if !buf.isEmpty { toks.append(buf); buf = "" }
+                    toks.append(String(mirror[c] ?? c))
+                }
+                i += 1
+            }
+            if !buf.isEmpty { toks.append(buf) }
+            return toks.reversed().joined()
+        }.joined(separator: "\n")
+    }
 
     /// 取文案：t(21, "Wi-Fi", "USB") -> "已守护 Wi-Fi，方式：USB"
     /// RTL 语言下，插入值用 FSI/PDI 包裹，避免接口名、VID:PID 等拉丁片段
@@ -1293,16 +1337,20 @@ final class I18n {
         // ini 是单行格式，文案里的换行写作字面 \n——在这里统一还原，
         // 否则对话框会把 "\n\n" 原样显示出来
         s = s.replacingOccurrences(of: "\\n", with: "\n")
-        let rtl = isRTL
+        // 文言自行倒排，不用 BiDi 隔离符（隔离符会成为倒排中的杂质）
+        let iso = isRTL && !isGlyphReversed
         for (i, a) in args.enumerated() {
-            let v = rtl ? I18n.FSI + "\(a)" + I18n.PDI : "\(a)"
+            let v = iso ? I18n.FSI + "\(a)" + I18n.PDI : "\(a)"
             s = s.replacingOccurrences(of: "{\(i)}", with: v)
         }
-        return s
+        return isGlyphReversed ? I18n.reverseGlyphs(s) : s
     }
 
-    /// 段落级方向标记：让整段在 RTL 语言下右对齐显示
-    func paragraph(_ s: String) -> String { isRTL ? I18n.RLM + s : s }
+    /// 段落级方向标记：让整段在 RTL 语言下右对齐显示。
+    /// 文言已逐字倒排成形，再加 RLM 会让双向算法二次重排，故不加。
+    func paragraph(_ s: String) -> String {
+        isRTL && !isGlyphReversed ? I18n.RLM + s : s
+    }
 }
 
 func T(_ id: Int, _ args: CVarArg...) -> String {
@@ -2329,8 +2377,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let ps = NSMutableParagraphStyle()
                 ps.baseWritingDirection = .rightToLeft
                 ps.alignment = .right
+                // 文言逐字倒排后已成右起之形，不再加 RLM 交由双向算法重排
+                let shown = code == "lzh" ? I18n.reverseGlyphs(name) : I18n.RLM + name
                 li.attributedTitle = NSAttributedString(
-                    string: I18n.RLM + name,
+                    string: shown,
                     attributes: [.paragraphStyle: ps,
                                  .font: NSFont.menuFont(ofSize: 0)])
             }
@@ -2461,14 +2511,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         UserDefaults.standard.set(nowRTL, forKey: "AppleTextDirection")
         UserDefaults.standard.synchronize()
 
-        let a = NSAlert()
-        a.messageText = T(24)
-        a.informativeText = I18n.shared.paragraph(T(192))
-        a.addButton(withTitle: T(193))   // 立即重启
-        a.addButton(withTitle: T(18))
-        NSApp.activate(ignoringOtherApps: true)
-        guard a.runModal() == .alertFirstButtonReturn else { return }
-
+        // 重启是实现书写方向切换的手段，不是用户要做的决定：直接重启，
+        // 不弹确认。App 常驻菜单栏、无未保存状态，重启对用户是无感的。
         // 重启自身：新进程带 --background，与 LaunchAgent 一致
         let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
             (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
