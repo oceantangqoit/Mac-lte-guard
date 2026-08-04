@@ -11,6 +11,11 @@ cat > "/Users/$U/Library/LaunchAgents/com.oceantang.lteguard.plist" << PL
 </dict></plist>
 PL
 chown "$U" "/Users/$U/Library/LaunchAgents/com.oceantang.lteguard.plist"
+# pkg 以 root 身份安装，装出来的 App 属主是 root，用户自己都写不了——
+# 于是 App 无法自替换，静默更新只能退回 pkg，而 pkg 要管理员密码，
+# 静默就成了空话。把 App 交给当前用户（Chrome 等自更新程序的惯常做法），
+# 此后 dmg 自替换路径才走得通，静默更新才名副其实
+chown -R "$U" "/Applications/LTEGuard.app" 2>/dev/null
 # 先卸服务并杀净旧实例（含用户手动打开的），否则单实例保护会让新版直接退出
 launchctl bootout "gui/$UID_/com.oceantang.lteguard" 2>/dev/null
 pkill -x LTEGuard 2>/dev/null

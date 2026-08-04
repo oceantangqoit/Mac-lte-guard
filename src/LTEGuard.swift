@@ -418,15 +418,8 @@ enum Updater {
         }
 
         if path.hasSuffix(".pkg") {
-            // pkg 得由系统安装器接手，必然要人点、还要管理员密码——
-            // 静默模式下装不成，与其半途弹框破坏「无提示」的承诺，
-            // 不如老实退回「已就绪」，让用户自己挑时间装
-            if silent {
-                Sys.log(T(167, version))
-                Notifier.post(T(167, version))
-                Auth.onMain { AppDelegate.shared?.refreshIcon() }
-                return
-            }
+            // pkg 得由系统安装器接手，必然要人点、还要管理员密码。
+            // 静默路径在上游就已挡掉，走到这里必是用户自己点的
             NSWorkspace.shared.open(URL(fileURLWithPath: path))
             return
         }
@@ -488,6 +481,15 @@ enum Updater {
                 Auth.onMain { AppDelegate.shared?.refreshIcon() }
                 return
             }
+            // pkg 装不了无人值守——说清缘由，别让用户以为静默更新坏了
+            guard !file.hasSuffix(".pkg") else {
+                Sys.log(T(220, latest))
+                Notifier.post(T(167, latest))
+                Auth.onMain { AppDelegate.shared?.refreshIcon() }
+                return
+            }
+            // 日志写在真装之前会撒谎：装没装成还两说。这里只说「开始装」，
+            // 「装成了」由新版本启动时自己那条启动日志作证
             Sys.log(T(208, cur, latest))
             OpsNotify.report("update")
             install(path: file, version: latest, silent: true)   // 一声不吭装好，装完自重启
