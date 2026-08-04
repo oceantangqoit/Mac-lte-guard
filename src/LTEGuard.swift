@@ -2642,8 +2642,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private weak var nfPlatform: NSPopUpButton?
     private weak var nfRich: NSPopUpButton?
     private weak var nfField: NSTextField?
-    /// 静默更新的查询节拍
-    private var silentTimer: Timer?
+    /// 静默更新的查询节拍。用 DispatchSourceTimer 而非 NSTimer：
+    /// 后者挂在 RunLoop 上，菜单打开时会切模式，App Nap 也会把它拖慢
+    private var silentTimer: DispatchSourceTimer?
+    /// App Nap 会把后台 App 的定时器拖慢甚至挂起。值守工具的心跳不能被
+    /// 这样打折——声明一个后台活动，让系统知道我们确实在按点干活
+    private var napBlocker: NSObjectProtocol?
+    private var dailyTimer: DispatchSourceTimer?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -2831,10 +2836,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 每日更新检查（默认开，菜单可关）：启动后 30 秒错开开机高峰，
         // 之后每 6 小时看一次「是否已满 24 小时」，连不上就静默作罢
         DispatchQueue.global().asyncAfter(deadline: .now() + 30) { Updater.dailyCheckIfDue() }
+        // 先声明后台活动，再起节拍——否则第一拍就可能被 App Nap 吞掉
+        napBlocker = ProcessInfo.processInfo.beginActivity(
+            options: [.background, .suddenTerminationDisabled],
+            reason: "LTE Guard: 定时检查网卡与更新")
         restartSilentTimer()   // 静默更新按用户设定的间隔自己走
-        Timer.scheduledTimer(withTimeInterval: 21_600, repeats: true) { _ in
-            DispatchQueue.global().async { Updater.dailyCheckIfDue() }
-        }
+        let daily = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .background))
+        daily.schedule(deadline: .now() + 21_600, repeating: 21_600, leeway: .seconds(300))
+        daily.setEventHandler { Updater.dailyCheckIfDue() }
+        daily.resume()
+        dailyTimer = daily
 
         // Webhook 迁移与去重：地址搬进「通知与通报」的独立配置，命令里程序添加的
         // 发送行一律清除——现在由程序内建发送，命令里再留一份就会重复发两条。
@@ -4241,14 +4252,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// 间隔改了就换新节奏，不必等下一次触发
     func restartSilentTimer() {
-        silentTimer?.invalidate()
+        silentTimer?.cancel()
+        silentTimer = nil
         let sec = Config.load().updateInterval
         guard sec > 0 else { return }
         // 查询周期按设定值走，但至少每 30 秒才轮一次，避免空转
         let tick = Double(max(30, min(sec, 1_800)))
-        silentTimer = Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { _ in
-            DispatchQueue.global().async { Updater.silentCheckIfDue() }
-        }
+        let t = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        t.schedule(deadline: .now() + tick, repeating: tick, leeway: .seconds(2))
+        t.setEventHandler { Updater.silentCheckIfDue() }
+        t.resume()
+        silentTimer = t
     }
 
     /// 「通知与通报」：Webhook 地址与敏感操作通报集中在此，改一处即处处生效
