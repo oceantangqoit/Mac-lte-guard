@@ -319,23 +319,45 @@ enum Updater {
     }
 
     /// 查询最新版（直连 → 镜像）。返回 (版本, dmg 地址, pkg 地址)
+    /// 官方公布的 pkg 校验和（sha256），仅当 API 是直连拿到时才算数。
+    /// 大文件可以走镜像加速，但校验和必须来自官方——拿镜像给的哈希去校验
+    /// 镜像给的包，等于让嫌疑人自己作证
+    private(set) static var officialDigest = ""
+
     static func fetchLatest() -> (String, String, String)? {
         var urls = ["https://api.github.com/repos/\(repo)/releases/latest"]
         urls += mirrors.map { $0 + "https://api.github.com/repos/\(repo)/releases/latest" }
-        for u in urls {
+        for (idx, u) in urls.enumerated() {
             let out = Sys.run("curl -sL -m 12 '\(u)'")
             guard let d = out.data(using: .utf8),
                   let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
                   let tag = j["tag_name"] as? String else { continue }
-            var dmg = "", pkg = ""
+            var dmg = "", pkg = "", digest = ""
             for a in (j["assets"] as? [[String: Any]]) ?? [] {
                 guard let n = a["name"] as? String,
                       let du = a["browser_download_url"] as? String else { continue }
-                if n.hasSuffix(".dmg") { dmg = du } else if n.hasSuffix(".pkg") { pkg = du }
+                if n.hasSuffix(".dmg") { dmg = du }
+                else if n.hasSuffix(".pkg"), !n.hasPrefix("LTEGuard.pkg") {
+                    pkg = du
+                    // 只认直连（idx == 0）拿回来的哈希
+                    if idx == 0, let dg = a["digest"] as? String, dg.hasPrefix("sha256:") {
+                        digest = String(dg.dropFirst("sha256:".count))
+                    }
+                }
             }
+            officialDigest = digest
             return (tag.hasPrefix("v") ? String(tag.dropFirst()) : tag, dmg, pkg)
         }
         return nil
+    }
+
+    /// 包与官方校验和是否相符。相符则来路不重要——镜像也好、代理也好，
+    /// 内容既然与官方发布的一字不差，就不是它们能改的了
+    static func digestMatches(_ path: String) -> Bool {
+        guard !officialDigest.isEmpty else { return false }
+        let out = Sys.run("shasum -a 256 '\(path)' 2>/dev/null | awk '{print $1}'")
+        let got = out.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !got.isEmpty && got == officialDigest.lowercased()
     }
 
     /// 把各版本的更新概要写进 updates/commits.txt（倒序，最新在最上）——
@@ -576,11 +598,11 @@ enum Updater {
             }
             // 日志写在真装之前会撒谎：装没装成还两说。这里只说「开始装」，
             // 「装成了」由新版本启动时自己那条启动日志作证
-            // 经镜像拿到的包不无人值守安装。静默安装意味着「下载什么就执行
-            // 什么，无人过目」——这个信任只能给官方直连。镜像是第三方代理，
-            // 能返回任意内容，而我们没有签名可供校验。退回「已就绪」，
-            // 让用户自己决定装不装
-            guard !lastSourceWasMirror else {
+            // 准入条件：要么与官方校验和相符（来路就不重要了——内容既然与
+            // 官方发布的一字不差，就不是代理能改的），要么本来就是直连拿的。
+            // 两样都没有时不无人值守安装：那等于「下载什么就执行什么，
+            // 无人过目」，这个信任给不出去
+            guard !(lastSourceWasMirror && !digestMatches(file)) else {
                 Sys.log(T(229, latest))
                 Notifier.post(T(229, latest))
                 Auth.onMain { AppDelegate.shared?.refreshIcon() }
