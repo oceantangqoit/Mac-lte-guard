@@ -397,6 +397,10 @@ enum Updater {
 
     /// 安装已下载的包：dmg 直接替换并重启；pkg 交系统安装器（会要密码）
     /// silent = true 时不弹任何框，直接装。静默更新走的就是这条路。
+    ///
+    /// 一律用 pkg，不再走 dmg。要 pkg 无人值守，关键是别去调 `installer`
+    /// ——要管理员密码的是那个命令，不是 pkg 这个格式。pkgutil 能以普通
+    /// 用户身份把 pkg 解开，App 属主既已是当前用户，自己换掉自己即可。
     static func install(path: String, version: String, silent: Bool = false) {
         if !silent {
             let a = NSAlert()
@@ -417,33 +421,68 @@ enum Updater {
             WebhookSender.send(T(191, cur, version, "\(who)@\(host)"), sync: true)
         }
 
-        if path.hasSuffix(".pkg") {
-            // pkg 得由系统安装器接手，必然要人点、还要管理员密码。
-            // 静默路径在上游就已挡掉，走到这里必是用户自己点的
-            NSWorkspace.shared.open(URL(fileURLWithPath: path))
-            return
-        }
-        // dmg：挂载 → ditto 覆盖 → 卸载 → 重启自身
         Sys.log(T(166, version))
         let app = Bundle.main.bundlePath
-        let exe = app + "/Contents/MacOS/" +
-            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
+        let uid = String(getuid())
+        // 记下这次要装的版本：下次启动若版本没变，说明这轮没装成，
+        // 由启动处计数、连败两次即拉黑，免得每 30 秒杀自己一次的死循环
+        UserDefaults.standard.set(version, forKey: "installAttempt")
+        UserDefaults.standard.synchronize()
+
         let script = """
-        # 等旧实例退出（最多 5 秒）再动它的文件，然后杀净残留——
-        # 单实例保护会让新版在旧实例还活着时直接退出
+        set -u
+        APP='\(app)'
+        PKG='\(path)'
+        LABEL=com.oceantang.lteguard
+        PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+        EXP=$(mktemp -d)
+
+        cleanup() {
+            rm -rf "$EXP" 2>/dev/null
+            # 无论成败都把服务挂回去，否则守护就断了
+            [ -f "$PLIST" ] && launchctl bootstrap "gui/\(uid)" "$PLIST" 2>/dev/null
+        }
+        # 装不成时，退回让系统安装器接手——那条路要密码，但至少装得上
+        fallback() { cleanup; open '\(path)' 2>/dev/null; exit 1; }
+
+        # 先解包再动手。解不出来就什么都不碰，用户的 App 一直好端端的
+        pkgutil --expand-full "$PKG" "$EXP/x" >/dev/null 2>&1 || fallback
+        NEW=$(find "$EXP/x" -maxdepth 5 -name LTEGuard.app -type d | head -1)
+        [ -n "$NEW" ] && [ -d "$NEW/Contents/MacOS" ] || fallback
+
+        # 服务先卸下来，否则 pkill 之后 launchd 立刻把旧版拉起来，
+        # 正撞上替换过程——上一版的死循环就有它一份
+        launchctl bootout "gui/\(uid)/$LABEL" 2>/dev/null
         for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -x LTEGuard >/dev/null || break; sleep 0.5; done
         pkill -x LTEGuard 2>/dev/null
         sleep 1
-        MNT=$(mktemp -d)
-        hdiutil attach '\(path)' -nobrowse -quiet -mountpoint "$MNT" || exit 1
+
+        # 原子替换：旧的先挪开，新的到位后才删旧的。
+        # 「先删后拷」中途出错，用户就没有 App 了——这一步不许有这种可能
+        rm -rf "$APP.old" 2>/dev/null
+        if mv "$APP" "$APP.old" 2>/dev/null; then
+            if mv "$NEW" "$APP" 2>/dev/null; then
+                rm -rf "$APP.old" 2>/dev/null
+            else
+                mv "$APP.old" "$APP" 2>/dev/null   # 换不上就原样退回
+                fallback
+            fi
+        else
+            fallback
+        fi
+
+        cleanup
         sleep 1
-        rm -rf '\(app)' && ditto "$MNT/LTEGuard.app" '\(app)'
-        hdiutil detach "$MNT" -quiet
-        sleep 1
-        # 安装完成自动打开新版
-        open -a '\(app)' 2>/dev/null || '\(exe)' --background &
+        open -a "$APP" 2>/dev/null || "$APP/Contents/MacOS/LTEGuard" --background &
         """
-        Sys.run("nohup sh -c \"\(script.replacingOccurrences(of: "\"", with: "\\\""))\" >/dev/null 2>&1 &", wait: false)
+        // 脚本走临时文件，不经 sh -c 的引号：套一层双引号的话，脚本里的
+        // $EXP、$(mktemp -d) 会被外层 shell 抢先展开——上一版正是栽在这里，
+        // 变量成了空串，命令必败，而进程已经被 pkill 掉了
+        let sf = NSTemporaryDirectory() + "lteguard-update-\(version).sh"
+        guard (try? script.write(toFile: sf, atomically: true, encoding: .utf8)) != nil else {
+            Sys.log(T(162, sf)); return
+        }
+        Sys.run("nohup sh '\(sf)' >/dev/null 2>&1 &", wait: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSApp.terminate(nil) }
     }
 
@@ -468,22 +507,14 @@ enum Updater {
             writeChangelog()
             let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
             guard AppDelegate.versionNewer(latest, than: cur) else { return }
-            let selfWritable = FileManager.default.isWritableFile(atPath: Bundle.main.bundlePath)
-            guard let file = selfWritable && !dmg.isEmpty
-                    ? download(dmg, name: "LTEGuard-\(latest).dmg")
-                    : download(pkg, name: "LTEGuard-\(latest).pkg") else { return }
+            guard !isBlacklisted(latest) else { return }   // 连败两次的版本不再自动重试
+            _ = dmg   // 更新只认 pkg：自解包即可无人值守，不必再走磁盘映像
+            guard let file = download(pkg, name: "LTEGuard-\(latest).pkg") else { return }
             // 记下这次是从哪个版本升上来的，供升级后的权限提示说明来龙去脉
             UserDefaults.standard.set(cur, forKey: "lastUpgradeFrom")
             guard cfg.silentInstall else {
                 // 只下不装：留一条「已就绪」，由用户自己决定何时装
                 Sys.log(T(167, latest))
-                Notifier.post(T(167, latest))
-                Auth.onMain { AppDelegate.shared?.refreshIcon() }
-                return
-            }
-            // pkg 装不了无人值守——说清缘由，别让用户以为静默更新坏了
-            guard !file.hasSuffix(".pkg") else {
-                Sys.log(T(220, latest))
                 Notifier.post(T(167, latest))
                 Auth.onMain { AppDelegate.shared?.refreshIcon() }
                 return
@@ -502,6 +533,29 @@ enum Updater {
         (21_600, 204), (86_400, 205), (604_800, 206), (2_592_000, 207),
     ]
 
+    /// 装失败的版本：连败两次即拉黑，不再自动重试。
+    /// 上一版的教训——安装失败却每 30 秒重来一次，等于每 30 秒杀自己一次
+    static func markInstallOutcome() {
+        guard let attempted = UserDefaults.standard.string(forKey: "installAttempt") else { return }
+        UserDefaults.standard.removeObject(forKey: "installAttempt")
+        let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        guard attempted != cur else {          // 版本换过来了，这一轮是成的
+            UserDefaults.standard.removeObject(forKey: "installFail-\(attempted)")
+            return
+        }
+        let n = UserDefaults.standard.integer(forKey: "installFail-\(attempted)") + 1
+        UserDefaults.standard.set(n, forKey: "installFail-\(attempted)")
+        Sys.log(T(223, attempted, "\(n)"))
+        if n >= 2 {
+            Notifier.post(T(224, attempted))   // 拉黑了就得说一声，别让用户干等
+            Auth.onMain { AppDelegate.shared?.refreshIcon() }
+        }
+    }
+
+    static func isBlacklisted(_ version: String) -> Bool {
+        UserDefaults.standard.integer(forKey: "installFail-\(version)") >= 2
+    }
+
     private static var lastSilentCheck: Date {
         get { UserDefaults.standard.object(forKey: "lastSilentCheck") as? Date ?? .distantPast }
         set { UserDefaults.standard.set(newValue, forKey: "lastSilentCheck") }
@@ -516,10 +570,8 @@ enum Updater {
             writeChangelog()
             let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
             guard AppDelegate.versionNewer(latest, than: cur) else { return }
-            let selfWritable = FileManager.default.isWritableFile(atPath: Bundle.main.bundlePath)
-            let ok = selfWritable && !dmg.isEmpty
-                ? download(dmg, name: "LTEGuard-\(latest).dmg")
-                : download(pkg, name: "LTEGuard-\(latest).pkg")
+            _ = dmg
+            let ok = download(pkg, name: "LTEGuard-\(latest).pkg")
             if ok != nil {
                 Notifier.post(T(167, latest))
                 Auth.onMain { AppDelegate.shared?.refreshIcon() }   // 菜单出现「安装更新」
@@ -2529,6 +2581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Sys.migrateLegacyFiles()    // 先迁移旧路径文件，再写第一条日志
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         Sys.log(T(117, ver))
+        Updater.markInstallOutcome()   // 结算上一轮安装：成了就清账，败了就记一笔
         I18n.prepareUserLangDir()   // 启动即释放/刷新翻译模板（等效"安装时释放"，且升级后自动同步）
         UNUserNotificationCenter.current().delegate = self
         Notifier.requestAuth()
