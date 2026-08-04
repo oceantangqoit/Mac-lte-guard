@@ -402,16 +402,6 @@ enum Updater {
     /// ——要管理员密码的是那个命令，不是 pkg 这个格式。pkgutil 能以普通
     /// 用户身份把 pkg 解开，App 属主既已是当前用户，自己换掉自己即可。
     static func install(path: String, version: String, silent: Bool = false) {
-        if !silent {
-            let a = NSAlert()
-            a.messageText = T(161, version)
-            a.informativeText = I18n.shared.paragraph(T(165, path))
-            a.addButton(withTitle: T(17))
-            a.addButton(withTitle: T(18))
-            NSApp.activate(ignoringOtherApps: true)
-            guard a.runModal() == .alertFirstButtonReturn else { return }
-        }
-
         // 程序即将被替换、进程随后重启——值守工具该在此刻留痕。
         // 此时刚下载完，网络必通；同步发送，确保消息先于重启送达。
         if Config.load().notifyOps.contains("update") {
@@ -422,6 +412,14 @@ enum Updater {
         }
 
         Sys.log(T(166, version))
+
+        // 没勾「自动安装」，就交给系统安装器一步一步来：它自带引导，
+        // 也让人看清在装什么。勾了才走下面的自解包，一声不吭直接换掉
+        guard silent else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            return
+        }
+
         let app = Bundle.main.bundlePath
         let uid = String(getuid())
         // 记下这次要装的版本：下次启动若版本没变，说明这轮没装成，
