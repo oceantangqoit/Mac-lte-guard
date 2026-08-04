@@ -613,20 +613,26 @@ enum CameraSnap {
         let output = AVCapturePhotoOutput()
         guard session.canAddOutput(output) else { completion(nil); return }
         session.addOutput(output)
+
+        // 亮度探针：看真实画面，而不是只信相机的状态标志
+        let probe = LumaProbe()
+        let vout = AVCaptureVideoDataOutput()
+        vout.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:
+                                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
+        vout.alwaysDiscardsLateVideoFrames = true
+        vout.setSampleBufferDelegate(probe, queue: DispatchQueue(label: "luma"))
+        if session.canAddOutput(vout) { session.addOutput(vout) }
         session.startRunning()
 
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
         let path = "\(dir)/\(f.string(from: Date()))_\(tag).jpg"
 
-        // 唤醒/解锁瞬间摄像头刚上电，曝光与白平衡都还没收敛，直接拍必是黑图。
-        // 这里主动等待相机自报「不再调整」，最长 4 秒；随后再留 0.4 秒余量。
+        // 唤醒/解锁瞬间摄像头刚上电。此时 isAdjustingExposure 往往还是 false
+        // ——自动曝光尚未「开始」，不是已经「结束」；只等这个标志会立刻放行，
+        // 拍出来必是黑图。故改为盯住实际画面亮度，等它自己稳下来。
         DispatchQueue.global().async {
-            let deadline = Date().addingTimeInterval(4)
-            while Date() < deadline {
-                if !cam.isAdjustingExposure && !cam.isAdjustingWhiteBalance { break }
-                Thread.sleep(forTimeInterval: 0.15)
-            }
-            Thread.sleep(forTimeInterval: 0.4)
+            let waited = probe.waitUntilSettled(cam: cam)
+            Sys.log(T(194, String(format: "%.1f", waited), String(format: "%.0f", probe.luma * 100)))
             let delegate = SnapDelegate { data in
                 session.stopRunning()
                 if let d = data, (try? d.write(to: URL(fileURLWithPath: path))) != nil {
@@ -657,6 +663,112 @@ enum CameraSnap {
         DispatchQueue.global().async {
             _ = sem.wait(timeout: .now() + 15)
             if let p = result { print(p); exit(0) } else { exit(1) }
+        }
+        RunLoop.main.run()
+        exit(1)
+    }
+}
+
+/// 画面亮度探针：逐帧算 Y 平面均值，用真实画面判断曝光是否收敛。
+/// 相机的 isAdjustingExposure 在刚上电时是 false（还没开始调整），
+/// 单看它会误判为「已就绪」，所以以实测亮度为准，标志位只作辅助。
+private final class LumaProbe: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    private let lock = NSLock()
+    private var recent: [Double] = []        // 最近若干帧亮度，判稳用
+    private(set) var luma: Double = 0        // 最新一帧亮度 0…1
+    private(set) var frames = 0
+    private let t0 = Date()
+    /// 采样全程记录（探测模式用）：距开机秒数、亮度、是否仍在调整。
+    /// ISO 与快门时长是 iOS 专有属性，macOS 的 AVCaptureDevice 不提供，
+    /// 好在判断「什么时候该按快门」只看亮度曲线就够。
+    private(set) var trace: [(t: Double, luma: Double, adj: Bool)] = []
+    var recording = false
+    weak var device: AVCaptureDevice?
+
+    func captureOutput(_ o: AVCaptureOutput, didOutput sb: CMSampleBuffer,
+                       from c: AVCaptureConnection) {
+        guard let pb = CMSampleBufferGetImageBuffer(sb) else { return }
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        guard CVPixelBufferGetPlaneCount(pb) > 0,
+              let base = CVPixelBufferGetBaseAddressOfPlane(pb, 0) else { return }
+        let w = CVPixelBufferGetWidthOfPlane(pb, 0)
+        let h = CVPixelBufferGetHeightOfPlane(pb, 0)
+        let bpr = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
+        let p = base.assumingMemoryBound(to: UInt8.self)
+        // 每 8 像素取一点即可判断整体明暗，省 CPU（唤醒瞬间要让路给网卡自愈）
+        var sum = 0, n = 0, y = 0
+        while y < h {
+            var x = 0
+            while x < w { sum += Int(p[y * bpr + x]); n += 1; x += 8 }
+            y += 8
+        }
+        guard n > 0 else { return }
+        // VideoRange 的 Y 是 16…235，换算回 0…1
+        let v = max(0, min(1, (Double(sum) / Double(n) - 16) / 219))
+        lock.lock()
+        luma = v; frames += 1
+        recent.append(v); if recent.count > 5 { recent.removeFirst() }
+        if recording, let d = device {
+            trace.append((Date().timeIntervalSince(t0), v, d.isAdjustingExposure))
+        }
+        lock.unlock()
+    }
+
+    /// 是否已稳定：最近 5 帧亮度极差小于 1.5%，且画面不是全黑
+    private var settled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard recent.count >= 5, let lo = recent.min(), let hi = recent.max() else { return false }
+        return hi - lo < 0.015 && hi > 0.02
+    }
+
+    /// 等到曝光收敛。返回实际等待秒数。
+    /// 下限 0.8 秒——自动曝光需要时间「开始」；上限 6 秒——再久也得给张图。
+    @discardableResult
+    func waitUntilSettled(cam: AVCaptureDevice) -> Double {
+        let start = Date()
+        let floorT = 0.8, ceilT = 6.0
+        while Date().timeIntervalSince(start) < ceilT {
+            Thread.sleep(forTimeInterval: 0.05)
+            let el = Date().timeIntervalSince(start)
+            if el < floorT { continue }
+            if settled && !cam.isAdjustingExposure && !cam.isAdjustingWhiteBalance { break }
+        }
+        return Date().timeIntervalSince(start)
+    }
+}
+
+extension CameraSnap {
+    /// 探测模式：连续采样 8 秒，打印亮度/ISO/快门随时间的变化，用于定标最佳快门时机。
+    /// 走 App 自身的二进制，因而沿用已授予的摄像头权限，不必重新授权。
+    static func probeExposure() -> Never {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+            print("摄像头未授权，无法探测"); exit(1)
+        }
+        let session = AVCaptureSession()
+        session.sessionPreset = .photo
+        guard let cam = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: cam),
+              session.canAddInput(input) else { print("打不开摄像头"); exit(1) }
+        session.addInput(input)
+        let probe = LumaProbe()
+        probe.device = cam
+        probe.recording = true
+        let vout = AVCaptureVideoDataOutput()
+        vout.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:
+                                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
+        vout.setSampleBufferDelegate(probe, queue: DispatchQueue(label: "luma"))
+        guard session.canAddOutput(vout) else { print("加不上视频输出"); exit(1) }
+        session.addOutput(vout)
+        session.startRunning()
+        DispatchQueue.global().async {
+            Thread.sleep(forTimeInterval: 8)
+            session.stopRunning()
+            print("秒数\t亮度%\t调整中")
+            for s in probe.trace {
+                print(String(format: "%.2f\t%.1f\t%@", s.t, s.luma * 100, s.adj ? "是" : "否"))
+            }
+            exit(0)
         }
         RunLoop.main.run()
         exit(1)
@@ -1100,6 +1212,12 @@ enum Sys {
         return nil
     }
 
+    /// 接口是否还在系统里。USB 网卡假死时接口整个消失，这是硬故障的标志，
+    /// 与「接口在、只是还没拿到 IP」（DHCP 未完成）截然不同，不该混为一谈。
+    static func interfaceExists(_ dev: String) -> Bool {
+        run("ifconfig \(dev) >/dev/null 2>&1 && echo y") == "y"
+    }
+
     static func interfaceHealthy(_ dev: String) -> Bool {
         let hasIP = run("ifconfig \(dev) 2>/dev/null | grep -q 'inet ' && echo y") == "y"
         guard hasIP else { return false }
@@ -1427,6 +1545,31 @@ final class Healer {
     /// 启动（launch）：补救"App 启动前就发生过睡眠"的空档（如开机停在
     /// 登录界面时睡过，登录后 App 才起来，唤醒事件早已错过）——
     /// 逻辑同手动（先检测、坏才修），但全部健康时静默，不打扰。
+    /// 启动即检。接口不见了就是硬故障（USB 假死的典型表现），立刻修，
+    /// 与唤醒后同速；只有「接口在、还没拿到 IP」才可能是 DHCP 没跑完，
+    /// 那种情况才需要宽限——不必让所有情形都陪着一起等。
+    func launchCheck() {
+        q.async {
+            let targets = Config.load().targets.filter { !$0.dev.isEmpty }
+            guard !targets.isEmpty else { return }
+            if targets.contains(where: { !Sys.interfaceExists($0.dev) }) {
+                DispatchQueue.global().async { self.checkAndHeal(reason: "launch") }
+                return
+            }
+            DispatchQueue.global().async {
+                let deadline = Date().addingTimeInterval(8)
+                while Date() < deadline {
+                    if targets.allSatisfy({ Sys.interfaceHealthy($0.dev) }) {
+                        HealthCache.shared.refresh(targets.map(\.dev))
+                        return                      // DHCP 自己跑完了，无须动手
+                    }
+                    Thread.sleep(forTimeInterval: 1)
+                }
+                self.checkAndHeal(reason: "launch")
+            }
+        }
+    }
+
     func checkAndHeal(reason: String) {
         q.async {
             let cfg = Config.load()
@@ -2000,6 +2143,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func main() {
         // 命令行拍照模式：LTEGuard --snap [标签]，拍完打印路径退出（不进 UI，
         // 短命进程，不参与下面的单实例判定）
+        // 曝光探测：诊断用，输出亮度随时间的变化曲线
+        if CommandLine.arguments.contains("--exposure-probe") { CameraSnap.probeExposure() }
         if let i = CommandLine.arguments.firstIndex(of: "--snap") {
             let tag = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "manual"
             CameraSnap.runCLI(tag: tag)
@@ -2123,10 +2268,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.firstRunGuide() }
         }
         // 补救"App 启动前就睡过"的空档：开机停在登录界面时睡眠→网卡假死→
-        // 登录后 App 才启动，唤醒事件早已错过。启动后延迟检测一次，坏了才修、
-        // 健康则静默。延迟 8 秒是给登录后网络栈初始化（DHCP 等）留时间，避免误判
-        DispatchQueue.global().asyncAfter(deadline: .now() + 8) {
-            Healer.shared.checkAndHeal(reason: "launch")
+        // 登录后 App 才启动，唤醒事件早已错过。启动就查，接口没了立刻修，
+        // 只有还没拿到 IP 才给 DHCP 宽限——见 launchCheck()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
+            Healer.shared.launchCheck()
         }
         // 每日更新检查（默认开，菜单可关）：启动后 30 秒错开开机高峰，
         // 之后每 6 小时看一次「是否已满 24 小时」，连不上就静默作罢
