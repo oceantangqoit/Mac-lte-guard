@@ -451,6 +451,41 @@ enum Updater {
         }
     }
 
+    /// 静默更新：按用户设定的间隔查询，查到新版本直接装好，不弹任何框。
+    /// 「无感」不等于「无痕」——装完写日志、按需发 webhook，事后查得到。
+    static func silentCheckIfDue() {
+        let cfg = Config.load()
+        guard cfg.updateInterval > 0 else { return }        // 0 = 从不
+        guard Date().timeIntervalSince(lastSilentCheck) > Double(cfg.updateInterval) else { return }
+        lastSilentCheck = Date()
+        DispatchQueue.global(qos: .background).async {
+            guard let (latest, dmg, pkg) = fetchLatest() else { return }   // 连不上就静默作罢
+            writeChangelog()
+            let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+            guard AppDelegate.versionNewer(latest, than: cur) else { return }
+            let selfWritable = FileManager.default.isWritableFile(atPath: Bundle.main.bundlePath)
+            guard let file = selfWritable && !dmg.isEmpty
+                    ? download(dmg, name: "LTEGuard-\(latest).dmg")
+                    : download(pkg, name: "LTEGuard-\(latest).pkg") else { return }
+            Sys.log(T(208, cur, latest))
+            OpsNotify.report("update")
+            // 记下这次是从哪个版本升上来的，供升级后的权限提示说明来龙去脉
+            UserDefaults.standard.set(cur, forKey: "lastUpgradeFrom")
+            install(path: file, version: latest)   // 装完自动重启，全程不打扰
+        }
+    }
+
+    /// 间隔档位：秒数与对应文案键。0 为「从不」，排在首位
+    static let intervalChoices: [(Int, Int)] = [
+        (0, 199), (30, 200), (300, 201), (1_800, 202), (3_600, 203),
+        (21_600, 204), (86_400, 205), (604_800, 206), (2_592_000, 207),
+    ]
+
+    private static var lastSilentCheck: Date {
+        get { UserDefaults.standard.object(forKey: "lastSilentCheck") as? Date ?? .distantPast }
+        set { UserDefaults.standard.set(newValue, forKey: "lastSilentCheck") }
+    }
+
     /// 后台：每天最多查一次，发现新版静默下好，只发一条「已就绪」通知
     static func dailyCheckIfDue() {
         guard autoCheck, Date().timeIntervalSince(lastCheck) > 86_400 else { return }
@@ -842,6 +877,9 @@ struct Config {
     var whPlatform = 0
     var whURL = ""
     var whRich = false
+    /// 静默更新的查询间隔（秒）。0 表示「从不」，即关闭静默更新。
+    /// 档位见 Updater.intervalChoices：30 秒到 1 个月，开发调试用得上最短那档
+    var updateInterval = 0
 
     // 兼容视图：部分旧代码路径仍以"第一个对象"工作
     var dev: String { targets.first?.dev ?? "" }
@@ -868,9 +906,15 @@ struct Config {
                 c.whURL = Config.parseQuoted(raw) ?? raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
                 continue
             }
-            if key == "WEBHOOK_PLATFORM" || key == "WEBHOOK_RICH" {
+            if key == "WEBHOOK_PLATFORM" || key == "WEBHOOK_RICH"
+                || key == "SILENT_UPDATE" || key == "UPDATE_INTERVAL" {
                 let v = Config.parseQuoted(raw) ?? raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
-                if key == "WEBHOOK_PLATFORM" { c.whPlatform = Int(v) ?? 0 } else { c.whRich = (v == "1") }
+                switch key {
+                case "WEBHOOK_PLATFORM": c.whPlatform = Int(v) ?? 0
+                case "WEBHOOK_RICH":     c.whRich = (v == "1")
+                case "SILENT_UPDATE":    break          // 旧键，已由 UPDATE_INTERVAL 取代
+                default:                 c.updateInterval = max(0, Int(v) ?? 0)
+                }
                 continue
             }
             if key == "NOTIFY_OPS" {
@@ -922,6 +966,7 @@ struct Config {
         WEBHOOK_PLATFORM='\(whPlatform)'
         WEBHOOK_URL='\(whURL)'
         WEBHOOK_RICH='\(whRich ? 1 : 0)'
+        UPDATE_INTERVAL='\(updateInterval)'
         PRE_CMD='\(Config.escape(preCmd))'
         POST_CMD='\(Config.escape(postCmd))'
 
@@ -2136,6 +2181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private weak var nfPlatform: NSPopUpButton?
     private weak var nfRich: NSPopUpButton?
     private weak var nfField: NSTextField?
+    /// 静默更新的查询节拍
+    private var silentTimer: Timer?
     /// 用户主动唤起时，在此时间点之前强制显示图标（便于调整设置）
     private var forceShowUntil: Date?
     private let forceShowSeconds: TimeInterval = 20
@@ -2276,6 +2323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 每日更新检查（默认开，菜单可关）：启动后 30 秒错开开机高峰，
         // 之后每 6 小时看一次「是否已满 24 小时」，连不上就静默作罢
         DispatchQueue.global().asyncAfter(deadline: .now() + 30) { Updater.dailyCheckIfDue() }
+        restartSilentTimer()   // 静默更新按用户设定的间隔自己走
         Timer.scheduledTimer(withTimeInterval: 21_600, repeats: true) { _ in
             DispatchQueue.global().async { Updater.dailyCheckIfDue() }
         }
@@ -2318,10 +2366,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let st = AVCaptureDevice.authorizationStatus(for: .video)
             if (cfg0.preCmd + cfg0.postCmd).contains("--snap"), st != .authorized {
                 Sys.log(T(173, ver))
+                // 说清这次是从哪个版本升到哪个版本——用户才知道这次弹窗因何而来。
+                // 静默更新装的包也记了来源版本，同样能说明白
+                let from = UserDefaults.standard.string(forKey: "lastUpgradeFrom") ?? lastRun
+                let trace = from.isEmpty ? "" : T(196, from, ver) + "\n\n"
+                UserDefaults.standard.removeObject(forKey: "lastUpgradeFrom")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     let a = NSAlert()
                     a.messageText = T(125)
-                    a.informativeText = I18n.shared.paragraph(T(174))
+                    a.informativeText = I18n.shared.paragraph(trace + T(174))
                     a.alertStyle = .informational
                     a.addButton(withTitle: T(17))
                     a.addButton(withTitle: T(18))
@@ -2467,13 +2520,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let ready = Updater.readyVersion {
             m.addItem(item(T(168, ready), #selector(installUpdate), symbol: "arrow.down.app"))
         }
-        let upItem = item(T(180), nil, symbol: "arrow.down.circle")
-        let upMenu = sub()
-        upMenu.addItem(item(T(137), #selector(checkUpdate), symbol: "arrow.down.circle"))
-        upMenu.addItem(item(T(169), #selector(toggleAutoUpdate),
-                            state: Updater.autoCheck ? .on : .off, symbol: "calendar"))
-        upItem.submenu = upMenu
-        m.addItem(upItem)
+        // 更新集中到一个界面：查询、静默更新间隔、安装包目录、版本概要都在里面
+        m.addItem(item(T(180) + "…", #selector(showUpdatePanel), symbol: "arrow.down.circle"))
 
         m.addItem(.separator())
         m.addItem(item(T(56), #selector(showAbout), symbol: "info.circle"))
@@ -3428,6 +3476,106 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         c.save()
         WebhookSender.send(T(187))
         notify(T(187))
+    }
+
+    /// 「更新」界面：查询、静默更新、安装包去向、各版本概要，一处看全。
+    /// 静默更新选了间隔就等于开启——「从不」这一档即是关闭，不必再多一个开关。
+    @objc func showUpdatePanel() {
+        var cfg = Config.load()
+        let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let a = NSAlert()
+        a.messageText = T(180)
+        a.informativeText = I18n.shared.paragraph(T(195))
+
+        let W: CGFloat = 460
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 150))
+
+        func label(_ s: String, _ y: CGFloat, bold: Bool = true) -> NSTextField {
+            let l = NSTextField(labelWithString: s)
+            l.font = bold ? NSFont.boldSystemFont(ofSize: 11) : NSFont.systemFont(ofSize: 11)
+            l.textColor = .secondaryLabelColor
+            l.frame = NSRect(x: 0, y: y, width: W, height: 16)
+            return l
+        }
+        // 当前版本 / 已就绪的更新
+        var head = "LTE Guard \(cur)"
+        if let ready = Updater.readyVersion { head += "　·　" + T(167, ready) }
+        box.addSubview(label(head, 130))
+
+        box.addSubview(label(T(197), 102))
+        let ivLabel = NSTextField(labelWithString: T(198))
+        ivLabel.font = NSFont.systemFont(ofSize: 11)
+        ivLabel.frame = NSRect(x: 0, y: 76, width: 72, height: 16)
+        box.addSubview(ivLabel)
+
+        let pop = NSPopUpButton(frame: NSRect(x: 76, y: 72, width: 160, height: 26), pullsDown: false)
+        for (_, key) in Updater.intervalChoices { pop.addItem(withTitle: T(key)) }
+        let idx = Updater.intervalChoices.firstIndex { $0.0 == cfg.updateInterval } ?? 0
+        pop.selectItem(at: idx)
+        box.addSubview(pop)
+
+        let daily = NSButton(checkboxWithTitle: T(169), target: nil, action: nil)
+        daily.state = Updater.autoCheck ? .on : .off
+        daily.frame = NSRect(x: 250, y: 74, width: W - 250, height: 20)
+        box.addSubview(daily)
+
+        // 安装包去向说明——静默更新会不声不响地装，更要讲清包放在哪
+        let note = NSTextField(wrappingLabelWithString: T(164))
+        note.font = NSFont.systemFont(ofSize: 10)
+        note.textColor = .tertiaryLabelColor
+        note.frame = NSRect(x: 0, y: 0, width: W, height: 60)
+        box.addSubview(note)
+
+        a.accessoryView = box
+        a.addButton(withTitle: T(137))    // 立即检查
+        a.addButton(withTitle: T(172))    // 各版本更新概要
+        a.addButton(withTitle: T(18))     // 取消
+        NSApp.activate(ignoringOtherApps: true)
+        let r = a.runModal()
+
+        // 无论点哪个按钮，界面上的选择都算数
+        let picked = Updater.intervalChoices[max(0, pop.indexOfSelectedItem)].0
+        if picked != cfg.updateInterval {
+            cfg.updateInterval = picked
+            cfg.save()
+            Sys.log(T(209, T(Updater.intervalChoices[max(0, pop.indexOfSelectedItem)].1)))
+            restartSilentTimer()
+        }
+        if (daily.state == .on) != Updater.autoCheck { Updater.autoCheck = daily.state == .on }
+        refreshIcon()
+
+        switch r {
+        case .alertFirstButtonReturn:  checkUpdate()
+        case .alertSecondButtonReturn: openChangelog()
+        default: break
+        }
+    }
+
+    /// 打开各版本更新概要（先刷新一次，保证看到的是最新的）
+    @objc func openChangelog() {
+        DispatchQueue.global().async {
+            Updater.writeChangelog()
+            let f = Updater.dir + "/commits.txt"
+            Auth.onMain {
+                if FileManager.default.fileExists(atPath: f) {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: f))
+                } else {
+                    self.notify(T(183))
+                }
+            }
+        }
+    }
+
+    /// 间隔改了就换新节奏，不必等下一次触发
+    func restartSilentTimer() {
+        silentTimer?.invalidate()
+        let sec = Config.load().updateInterval
+        guard sec > 0 else { return }
+        // 查询周期按设定值走，但至少每 30 秒才轮一次，避免空转
+        let tick = Double(max(30, min(sec, 1_800)))
+        silentTimer = Timer.scheduledTimer(withTimeInterval: tick, repeats: true) { _ in
+            DispatchQueue.global().async { Updater.silentCheckIfDue() }
+        }
     }
 
     /// 「通知与通报」：Webhook 地址与敏感操作通报集中在此，改一处即处处生效
