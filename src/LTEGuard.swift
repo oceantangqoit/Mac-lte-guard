@@ -2934,7 +2934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var cfg = Config.load()
         let alert = NSAlert()
         alert.messageText = T(15)
-        alert.informativeText = T(108)
+        alert.informativeText = I18n.shared.paragraph(T(108), width: UI.W - 16)
         alert.alertStyle = .informational
 
         let rowH = Int(UI.rowH)
@@ -3643,10 +3643,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let d = Diagnosis.run()
         let a = NSAlert()
         a.messageText = T(29)
-        a.informativeText = I18n.shared.paragraph(d.lines.joined(separator: "\n"))
-            + (d.problems.isEmpty ? "\n\n✅ " + T(45)
-                                  : "\n\n⚠️ " + T(46) + "\n• " + d.problems.joined(separator: "\n• "))
+        // 结论放在标题下，一眼可见；明细进列表——诊断项里有安装路径这类长串，
+        // 塞进 informativeText 会把窗体撑得忽宽忽窄，与其他窗体对不齐
+        a.informativeText = (d.problems.isEmpty ? "✅ " : "⚠️ ") + T(d.problems.isEmpty ? 45 : 46)
         a.alertStyle = d.problems.isEmpty ? .informational : .warning
+
+        let sv = UI.list(height: 240)
+        let tv = NSTextView(frame: sv.bounds)
+        tv.isEditable = false
+        tv.isSelectable = true            // 诊断信息常要拷出去问人，得能选
+        tv.drawsBackground = false
+        tv.textContainerInset = NSSize(width: UI.gap, height: UI.gap)
+        tv.autoresizingMask = [.width]
+
+        let body = NSMutableAttributedString()
+        let base: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
+        let bad: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.systemRed]
+        let w = UI.W - 16 - UI.gap * 2
+        for line in d.lines {
+            body.append(NSAttributedString(string: I18n.shared.paragraph(line, width: w) + "\n",
+                                           attributes: base))
+        }
+        if !d.problems.isEmpty {
+            body.append(NSAttributedString(string: "\n", attributes: base))
+            for p in d.problems {
+                body.append(NSAttributedString(
+                    string: "• " + I18n.shared.paragraph(p, width: w - 12) + "\n", attributes: bad))
+            }
+        }
+        tv.textStorage?.setAttributedString(body)
+        sv.documentView = tv
+        a.accessoryView = sv
         a.addButton(withTitle: T(17))
         NSApp.activate(ignoringOtherApps: true)
         a.runModal()
