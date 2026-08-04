@@ -356,6 +356,18 @@ enum Updater {
         }
     }
 
+    /// 同一时刻只许一路下载。30 秒的节拍遇上慢速网络，上一轮还没下完
+    /// 下一轮就来了，两个 curl 写同一个 .part，写出来的是内容交错的坏包。
+    /// 拿到闸才干活，拿不到就让路——让路不算失败，下一轮自然会来
+    private static let gate = NSLock()
+    private static var busy = false
+    static func tryEnter() -> Bool {
+        gate.lock(); defer { gate.unlock() }
+        if busy { return false }
+        busy = true; return true
+    }
+    static func leave() { gate.lock(); busy = false; gate.unlock() }
+
     /// 下载到 updates/（直连 → 镜像）。成功返回本地路径
     @discardableResult
     static func download(_ url: String, name: String) -> String? {
@@ -364,7 +376,7 @@ enum Updater {
         let dest = dir + "/" + name
         if FileManager.default.fileExists(atPath: dest) { return dest }   // 已下过就不重下
         for u in [url] + mirrors.map({ $0 + url }) {
-            let tmp = dest + ".part"
+            let tmp = dest + ".\(getpid()).part"
             let out = Sys.run("curl -sL -m 600 -o '\(tmp)' '\(u)' && echo __OK__")
             let size = (try? FileManager.default.attributesOfItem(atPath: tmp))?[.size] as? Int ?? 0
             if out.contains("__OK__"), size > 200_000 {   // 安装包至少 200KB，防止把错误页当成包
@@ -382,7 +394,9 @@ enum Updater {
     /// 前台：下载并安装（用户点了「立即下载并更新」）
     static func downloadAndInstall(version: String, dmg: String, pkg: String) {
         Notifier.post(T(160, version))
+        guard tryEnter() else { return }
         DispatchQueue.global(qos: .userInitiated).async {
+            defer { leave() }
             // 一律取 pkg。install() 只认 pkg（靠 pkgutil 自解包才免提权），
             // 这里若还下 dmg，拿到手也只能失败回退——2.43 改过静默那条路，
             // 这条「用户手动点下载」的路当时漏了
@@ -420,13 +434,15 @@ enum Updater {
             return
         }
 
-        let app = Bundle.main.bundlePath
-        let uid = String(getuid())
         // 记下这次要装的版本：下次启动若版本没变，说明这轮没装成，
-        // 由启动处计数、连败两次即拉黑，免得每 30 秒杀自己一次的死循环
+        // 由启动处计数、连败两次即拉黑，免得每 30 秒杀自己一次的死循环。
+        // **只有静默路径才记**——交给系统安装器时，用户在安装器里点取消
+        // 是他的自由，不是失败，更不该因此把这个版本拉黑
         UserDefaults.standard.set(version, forKey: "installAttempt")
         UserDefaults.standard.synchronize()
 
+        let app = Bundle.main.bundlePath
+        let uid = String(getuid())
         let script = """
         set -u
         APP='\(app)'
@@ -515,8 +531,10 @@ enum Updater {
         // 严格比大小会让这一轮白白跳过——设定的 30 秒于是变成了 60 秒
         guard Date().timeIntervalSince(lastSilentCheck)
                 > Double(cfg.updateInterval) - 2 else { return }
+        guard tryEnter() else { return }        // 上一轮还在跑，让路
         lastSilentCheck = Date()
         DispatchQueue.global(qos: .background).async {
+            defer { leave() }
             guard let (latest, dmg, pkg) = fetchLatest() else { return }   // 连不上就静默作罢
             writeChangelog()
             let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
@@ -550,13 +568,13 @@ enum Updater {
     /// 装失败的版本：连败两次即拉黑，不再自动重试。
     /// 上一版的教训——安装失败却每 30 秒重来一次，等于每 30 秒杀自己一次
     static func markInstallOutcome() {
+        let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        // 眼下跑着的这个版本，无论是自动装上的还是用户手动装的，
+        // 从前的失败记录都作废了——拉黑不该是终身的
+        UserDefaults.standard.removeObject(forKey: "installFail-\(cur)")
         guard let attempted = UserDefaults.standard.string(forKey: "installAttempt") else { return }
         UserDefaults.standard.removeObject(forKey: "installAttempt")
-        let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        guard attempted != cur else {          // 版本换过来了，这一轮是成的
-            UserDefaults.standard.removeObject(forKey: "installFail-\(attempted)")
-            return
-        }
+        guard attempted != cur else { return }   // 版本换过来了，这一轮是成的
         let n = UserDefaults.standard.integer(forKey: "installFail-\(attempted)") + 1
         UserDefaults.standard.set(n, forKey: "installFail-\(attempted)")
         Sys.log(T(223, attempted, "\(n)"))
@@ -578,7 +596,9 @@ enum Updater {
     /// 后台：每天最多查一次，发现新版静默下好，只发一条「已就绪」通知
     static func dailyCheckIfDue() {
         guard autoCheck, Date().timeIntervalSince(lastCheck) > 86_400 else { return }
+        guard tryEnter() else { return }
         DispatchQueue.global(qos: .background).async {
+            defer { leave() }
             guard let (latest, dmg, pkg) = fetchLatest() else { return }   // 连不上就静默作罢，明天再来
             lastCheck = Date()
             writeChangelog()
@@ -2439,6 +2459,57 @@ final class WakeWatcher {
 
 // MARK: - App
 
+// MARK: - 自测
+// 只测纯函数：给定输入必得确定输出，不依赖网络、摄像头或用户点击。
+// 这类错误最阴——不崩溃、不报错，只是结果悄悄是错的。
+func runSelfTest() -> Never {
+    var pass = 0, fail = 0
+    func check(_ name: String, _ got: String, _ want: String) {
+        if got == want { pass += 1 }
+        else { fail += 1; print("✗ \(name)\n   得到: \(got)\n   应为: \(want)") }
+    }
+    func checkTrue(_ name: String, _ cond: Bool) {
+        if cond { pass += 1 } else { fail += 1; print("✗ \(name)") }
+    }
+
+    // 配置转义：命令里带引号、反斜杠、换行是常态，存取必须原样往返
+    for raw in ["echo 'it\\'s'", "curl -d '{\"k\":\"v\"}' url",
+                "a=1; b=$(date); echo $b", "第一行\n第二行", "结尾反斜杠\\",
+                "混合 '单' \"双\" \\ 与\n换行"] {
+        check("配置往返: \(raw.prefix(16))", Config.unescape(Config.escape(raw)), raw)
+    }
+
+    // 文言逐字倒排：倒两次必回原样，否则次序会越滚越乱
+    for raw in ["連斷之時，所擇之器自復。", "Mac 醒後，此程察器而自修之",
+                "重啟「en0」（此服綁 LTE Guard 也）", "已守 Wi-Fi，法：USB (05c6:9091)"] {
+        check("倒排自反: \(raw.prefix(12))", I18n.reverseGlyphs(I18n.reverseGlyphs(raw)), raw)
+    }
+    // 拉丁词与占位符不许被拆开
+    checkTrue("倒排保词序", I18n.reverseGlyphs("甲 LTE Guard 乙").contains("LTE Guard"))
+    checkTrue("倒排保占位符", I18n.reverseGlyphs("已用 {0} 秒").contains("{0}"))
+
+    // 版本比较：错一次就可能让人永远收不到更新，或反复装旧版
+    let vers: [(String, String, Bool)] = [
+        ("2.10.0", "2.9.0", true), ("2.9.0", "2.10.0", false),
+        ("2.53.0", "2.53.0", false), ("3.0.0", "2.99.99", true),
+        ("2.0.1", "2.0", true), ("2.0", "2.0.1", false),
+    ]
+    for (a, b, want) in vers {
+        checkTrue("版本 \(a) > \(b) = \(want)", AppDelegate.versionNewer(a, than: b) == want)
+    }
+
+    // 提示折行：不折的话会横着顶出屏幕，越要紧的话越看不全
+    let long = String(repeating: "这是一句很长的说明文字。", count: 4)
+    checkTrue("提示折行生效", UI.tip(long).contains("\n"))
+    checkTrue("短提示不动它", !UI.tip("很短").contains("\n"))
+
+    // 语言包的完整性不在这里测：那要碰 I18n 的私有表，为测试破封装不划算。
+    // 它由仓库里的校验脚本覆盖（72 语言 × 全部在用键，含占位符比对）
+
+    print("\n自测：通过 \(pass)，失败 \(fail)")
+    exit(fail == 0 ? 0 : 1)
+}
+
 // MARK: - 窗体排版
 // 六处对话框原先各写各的宽度与字号，同一个 App 里像出自不同人之手。
 // 这里定一套尺寸与字级：一致本身就是可预测性——同样的东西长得一样、
@@ -2547,6 +2618,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             print(I18n.shared.paragraph(T(195), width: UI.W - 16))
             exit(0)
         }
+        // 自测：把纯函数逐条跑一遍。这些函数出错都不会崩，只会悄悄给出
+        // 错的结果——配置读串行、文言排反、版本比错，全是这一类
+        if CommandLine.arguments.contains("--selftest") { runSelfTest() }
         // USB 归类自检：归错类的后果是让人丢数据，必须能当场验
         if CommandLine.arguments.contains("--usb-list") {
             for d in Sys.usbDevices() {
