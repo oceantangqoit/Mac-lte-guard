@@ -371,6 +371,11 @@ enum Updater {
         }
     }
 
+    /// 上一份下载是否来自镜像。镜像是第三方代理，能返回任意内容；
+    /// 包又未签名未公证，装之前没有任何东西能证明它是我们发的。
+    /// 官方直连至少有 GitHub 的 TLS 与账号体系兜着，镜像什么都没有
+    private(set) static var lastSourceWasMirror = false
+
     /// 同一时刻只许一路下载。30 秒的节拍遇上慢速网络，上一轮还没下完
     /// 下一轮就来了，两个 curl 写同一个 .part，写出来的是内容交错的坏包。
     /// 拿到闸才干活，拿不到就让路——让路不算失败，下一轮自然会来
@@ -390,12 +395,15 @@ enum Updater {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let dest = dir + "/" + name
         if FileManager.default.fileExists(atPath: dest) { return dest }   // 已下过就不重下
-        for u in [url] + mirrors.map({ $0 + url }) {
+        for (idx, u) in ([url] + mirrors.map({ $0 + url })).enumerated() {
             let tmp = dest + ".\(getpid()).part"
             let out = Sys.run("curl -sL -m 600 -o '\(tmp)' '\(u)' && echo __OK__")
             let size = (try? FileManager.default.attributesOfItem(atPath: tmp))?[.size] as? Int ?? 0
             if out.contains("__OK__"), size > 200_000 {   // 安装包至少 200KB，防止把错误页当成包
                 try? FileManager.default.moveItem(atPath: tmp, toPath: dest)
+                // 记下这一份是从哪儿来的。镜像是第三方代理，能返回任意内容，
+                // 而我们没有签名可校验——来路必须留痕，且不能无人过目就装
+                lastSourceWasMirror = idx > 0
                 Sys.log(T(160, name))
                 writeChangelog()   // 顺手更新各版本概要
                 return dest
@@ -568,6 +576,16 @@ enum Updater {
             }
             // 日志写在真装之前会撒谎：装没装成还两说。这里只说「开始装」，
             // 「装成了」由新版本启动时自己那条启动日志作证
+            // 经镜像拿到的包不无人值守安装。静默安装意味着「下载什么就执行
+            // 什么，无人过目」——这个信任只能给官方直连。镜像是第三方代理，
+            // 能返回任意内容，而我们没有签名可供校验。退回「已就绪」，
+            // 让用户自己决定装不装
+            guard !lastSourceWasMirror else {
+                Sys.log(T(229, latest))
+                Notifier.post(T(229, latest))
+                Auth.onMain { AppDelegate.shared?.refreshIcon() }
+                return
+            }
             Sys.log(T(208, cur, latest))
             OpsNotify.report("update")
             install(path: file, version: latest, silent: true)   // 一声不吭装好，装完自重启
@@ -3271,10 +3289,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // 重启是实现书写方向切换的手段，不是用户要做的决定：直接重启，
         // 不弹确认。App 常驻菜单栏、无未保存状态，重启对用户是无感的。
-        // 重启自身：新进程带 --background，与 LaunchAgent 一致
-        let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
-            (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
-        Sys.run("(sleep 1; '\(exe)' --background &) >/dev/null 2>&1 &", wait: false)
+        //
+        // 开着「永不退出」时不能自己再点一把火：那时 KeepAlive 是无条件的，
+        // launchd 会在我们退出的瞬间就拉起新的。两把火同时点着，两个进程
+        // 去抢同一把文件锁——活下来的那个是对的，但纯属运气，不该这么写
+        if !LaunchAtLogin.alwaysOn {
+            let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
+                (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
+            Sys.run("(sleep 1; '\(exe)' --background &) >/dev/null 2>&1 &", wait: false)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
     }
 
