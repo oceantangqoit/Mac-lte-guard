@@ -1276,6 +1276,8 @@ enum Sys {
         /// 是否该在界面上标红劝阻。集线器与数据类风险不同，但都不宜自动守护：
         /// 数据类是自身在读写，集线器是替下游背了这个风险
         var risky: Bool { self == .data || self == .hub }
+        /// 劝阻的缘由。标题只能短，缘由长，挂在悬停提示里——要看才看
+        var why: Int? { self == .data ? 221 : self == .hub ? 222 : nil }
     }
 
     /// 由 USB 类代码判定用途。设备类为 0（按接口定）或 0xEF（复合设备）时，
@@ -1671,9 +1673,16 @@ final class I18n {
     /// 但要按对话框正文的实际宽度重新折行——t() 只倒了字序，
     /// 段落若整块交给系统折行，倒排的行就与视觉的行对不上。
     /// width 取 NSAlert 正文的常见可用宽度，略留余量以免系统二次折行。
-    func paragraph(_ s: String, width: CGFloat = 352) -> String {
+    /// width 默认取窄值：不带 accessoryView 的 NSAlert 正文只有 260pt 上下，
+    /// 按宽了折，系统会把我折出的行再折一次——视觉的行与倒排的行错开，
+    /// 读起来就是乱的。宁可折窄些多占一行，也不能让系统二次折行。
+    /// 带 accessoryView 的窗体正文跟着它加宽，那些地方显式传实际宽度。
+    func paragraph(_ s: String, width: CGFloat = 248) -> String {
         guard isRTL else { return s }
         guard isGlyphReversed else { return I18n.RLM + s }
+        // 语言包定做模式下不再折行重排：序号是给编辑者的标记，一旦卷进
+        // 倒排就会被挪到行尾去，反倒认不出哪句是哪句。此时形制让位于对号入座
+        guard !I18n.showKeys else { return s }
         // t() 已把字序倒过来了，这里先还原成正序，再按宽度折行重倒一次
         let upright = I18n.reverseGlyphs(s)
         return I18n.reverseWrapped(upright, width: width,
@@ -2425,11 +2434,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 文言折行自检：整段倒置与逐行倒排肉眼难分，必须能打出来看
         if CommandLine.arguments.contains("--lzh-demo") {
             I18n.shared.load(preferred: "lzh")
-            for key in [195, 211, 74] {
-                print("── 键 \(key) ──")
-                print(I18n.shared.paragraph(T(key)))
-                print("")
-            }
+            print("── 关于（窄窗体，默认宽度）──")
+            print(I18n.shared.paragraph("\(T(57))\n\n\(T(64))\n\(T(66))\n\n\(T(70))"))
+            print("\n── 更新说明（宽窗体）──")
+            print(I18n.shared.paragraph(T(195), width: UI.W - 16))
             exit(0)
         }
         // USB 归类自检：归错类的后果是让人丢数据，必须能当场验
@@ -2795,19 +2803,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         hint.isEnabled = false
         usbMenu.addItem(hint)
         usbMenu.addItem(.separator())
-        // 这里的次序与「自动守护」界面相反：数据类设备只该手工重置，
-        // 所以在手工菜单里把它们提到最前，最顺手的位置留给最该用它的设备
+        // 这里的次序与「自动守护」界面相反：数据类与集线器只该手工重置，
+        // 所以在手工菜单里把它们提到最前，最顺手的位置留给最该用它的设备。
+        // 分组只用符号与分隔线，不加文字标题——菜单宽度由最长的一项决定，
+        // 一句解释就能把整个菜单撑得老宽。缘由挂在悬停提示里，要看才看
         let byKind = Dictionary(grouping: Sys.usbDevices(), by: { $0.3 })
-        for (kind, titleKey) in [(Sys.USBKind.data, 217), (.hub, 218), (.network, 215), (.other, 216)] {
+        var first = true
+        for kind in [Sys.USBKind.data, .hub, .network, .other] {
             guard let list = byKind[kind], !list.isEmpty else { continue }
-            let hdr = NSMenuItem(title: T(titleKey), action: nil, keyEquivalent: "")
-            hdr.isEnabled = false
-            usbMenu.addItem(hdr)
+            if !first { usbMenu.addItem(.separator()) }
+            first = false
             for (vid, pid, name, _) in list {
-                let di = NSMenuItem(title: "　\(name)  (\(vid):\(pid))",
+                let mark = kind.risky ? "⚠️ " : ""
+                let di = NSMenuItem(title: "\(mark)\(name)  (\(vid):\(pid))",
                                     action: #selector(resetUSBDevice(_:)), keyEquivalent: "")
                 di.target = self
                 di.representedObject = "\(vid) \(pid) \(name)"
+                di.toolTip = kind.why.map { T($0) }
                 usbMenu.addItem(di)
             }
         }
@@ -3518,7 +3530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let devs = Sys.usbDevices()
         let a = NSAlert()
         a.messageText = T(210)
-        a.informativeText = I18n.shared.paragraph(T(211))
+        a.informativeText = I18n.shared.paragraph(T(211), width: UI.W - 16)
         a.alertStyle = .warning
 
         let W = UI.W, rh = UI.rowH
@@ -3543,6 +3555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cb.state = cfg.usbGuards.contains { $0.vid == d.0 && $0.pid == d.1 } ? .on : .off
                 cb.frame = NSRect(x: 18, y: y, width: W - 44, height: 20)
                 if kind.risky { cb.contentTintColor = .systemRed }
+                cb.toolTip = kind.why.map { T($0) }
                 doc.addSubview(cb)
                 boxes.append((cb, (d.0, d.1, d.2)))
                 y -= rh
@@ -3836,7 +3849,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let a = NSAlert()
         a.messageText = T(180)
-        a.informativeText = I18n.shared.paragraph(T(195))
+        a.informativeText = I18n.shared.paragraph(T(195), width: UI.W - 16)
 
         let W = UI.W
         let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 156))
@@ -3931,7 +3944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var cfg = Config.load()
         let a = NSAlert()
         a.messageText = T(184)
-        a.informativeText = I18n.shared.paragraph(T(185))
+        a.informativeText = I18n.shared.paragraph(T(185), width: UI.W - 16)
 
         let W = UI.W
         let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 318))
