@@ -1566,46 +1566,83 @@ final class I18n {
     static let PDI = "\u{2069}"   // Pop Directional Isolate
     static let RLM = "\u{200F}"           // Right-to-Left Mark
 
+    /// 语言包定做模式：每条文案前挂上它的序号。改语言包的人最费神的
+    /// 不是翻译，而是「界面上这句话是第几号」——把号码直接显示出来，
+    /// 对着改即可，不必回头在 ini 里逐条比对
+    static var showKeys: Bool {
+        get { UserDefaults.standard.bool(forKey: "showLangKeys") }
+        set { UserDefaults.standard.set(newValue, forKey: "showLangKeys") }
+    }
+
     /// 是否逐字倒排显示。仅文言（lzh）如此：汉字是强左向字符，Unicode
     /// 双向算法不会把它们右起排布，故由程序显式倒序。
     /// 阿拉伯语、希伯来语等真正的 RTL 文字自有双向算法处理，绝不走这条路径。
     var isGlyphReversed: Bool { code == "lzh" }
 
+    /// 按显示宽度折行，再逐行倒排。**行序不动**——右起读的是每一行，
+    /// 不是整段：整段倒置会把末句顶到最前，读序全反，那是错的。
+    /// width 为可用像素宽，font 用于实测每个字的宽度。
+    static func reverseWrapped(_ s: String, width: CGFloat, font: NSFont) -> String {
+        guard width > 20 else { return reverseGlyphs(s) }
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        return s.split(separator: "\n", omittingEmptySubsequences: false).map { para -> String in
+            var lines: [String] = []
+            var cur: [String] = []
+            var used: CGFloat = 0
+            for tok in tokens(of: String(para)) {
+                let w = (tok as NSString).size(withAttributes: attrs).width
+                // 行首的空格不占位置，否则倒排后行末会多出悬空的空白
+                if used + w > width, !cur.isEmpty {
+                    lines.append(cur.reversed().joined())
+                    cur = []; used = 0
+                    if tok == " " { continue }
+                }
+                cur.append(tok); used += w
+            }
+            if !cur.isEmpty { lines.append(cur.reversed().joined()) }
+            return lines.joined(separator: "\n")
+        }.joined(separator: "\n")
+    }
+
     /// 逐字倒排：汉字一字一序自右而左，拉丁词、数字、占位符整体保序
     /// （"USB" 倒成 "BSU" 便不可读），成对括号引号左右互易。
-    /// 行序不动，只倒每行之内——竖排右起是行的次序，非段落的次序。
+    /// 只倒每行之内，行序不动。短文本（菜单项、通知）用这个就够。
     static func reverseGlyphs(_ s: String) -> String {
+        return s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            tokens(of: String(line)).reversed().joined()
+        }.joined(separator: "\n")
+    }
+
+    /// 切分成倒排的最小单位：汉字与标点各自成粒（标点顺带左右互易），
+    /// 拉丁字母、数字及其粘连符号聚成一词——"USB"、"LTE Guard"、"{0}"
+    /// 都得整块搬，拆开就不可读了
+    private static func tokens(of line: String) -> [String] {
         let mirror: [Character: Character] = [
             "「": "」", "」": "「", "『": "』", "』": "『", "（": "）", "）": "（",
             "(": ")", ")": "(", "《": "》", "》": "《", "〈": "〉", "〉": "〈",
             "【": "】", "】": "【", "[": "]", "]": "[", "〔": "〕", "〕": "〔",
         ]
-        // 拉丁字母、数字及其粘连符号聚为一词，词内保持原序
         func joinable(_ c: Character) -> Bool {
             (c.isASCII && (c.isLetter || c.isNumber)) || "{}._:/@-+#".contains(c)
         }
-        return s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
-            let cs = Array(line)
-            var toks: [String] = []
-            var buf = ""
-            var i = 0
-            while i < cs.count {
-                let c = cs[i]
-                if joinable(c) {
-                    buf.append(c)
-                } else if c == " " && !buf.isEmpty
-                            && i + 1 < cs.count && joinable(cs[i + 1]) {
-                    // "LTE Guard" 这类词组中间的空格并入词内，不拆开
-                    buf.append(c)
-                } else {
-                    if !buf.isEmpty { toks.append(buf); buf = "" }
-                    toks.append(String(mirror[c] ?? c))
-                }
-                i += 1
+        let cs = Array(line)
+        var toks: [String] = []
+        var buf = ""
+        var i = 0
+        while i < cs.count {
+            let c = cs[i]
+            if joinable(c) {
+                buf.append(c)
+            } else if c == " " && !buf.isEmpty && i + 1 < cs.count && joinable(cs[i + 1]) {
+                buf.append(c)          // "LTE Guard" 词组中间的空格不拆
+            } else {
+                if !buf.isEmpty { toks.append(buf); buf = "" }
+                toks.append(String(mirror[c] ?? c))
             }
-            if !buf.isEmpty { toks.append(buf) }
-            return toks.reversed().joined()
-        }.joined(separator: "\n")
+            i += 1
+        }
+        if !buf.isEmpty { toks.append(buf) }
+        return toks
     }
 
     /// 取文案：t(21, "Wi-Fi", "USB") -> "已守护 Wi-Fi，方式：USB"
@@ -1622,13 +1659,23 @@ final class I18n {
             let v = iso ? I18n.FSI + "\(a)" + I18n.PDI : "\(a)"
             s = s.replacingOccurrences(of: "{\(i)}", with: v)
         }
-        return isGlyphReversed ? I18n.reverseGlyphs(s) : s
+        let body = isGlyphReversed ? I18n.reverseGlyphs(s) : s
+        // 号码不参与倒排：它是给编辑者的标记，不是正文的一部分
+        return I18n.showKeys ? "\(id)·\(body)" : body
     }
 
     /// 段落级方向标记：让整段在 RTL 语言下右对齐显示。
-    /// 文言已逐字倒排成形，再加 RLM 会让双向算法二次重排，故不加。
-    func paragraph(_ s: String) -> String {
-        isRTL && !isGlyphReversed ? I18n.RLM + s : s
+    /// 文言已逐字倒排成形，再加 RLM 会让双向算法二次重排，故不加；
+    /// 但要按对话框正文的实际宽度重新折行——t() 只倒了字序，
+    /// 段落若整块交给系统折行，倒排的行就与视觉的行对不上。
+    /// width 取 NSAlert 正文的常见可用宽度，略留余量以免系统二次折行。
+    func paragraph(_ s: String, width: CGFloat = 352) -> String {
+        guard isRTL else { return s }
+        guard isGlyphReversed else { return I18n.RLM + s }
+        // t() 已把字序倒过来了，这里先还原成正序，再按宽度折行重倒一次
+        let upright = I18n.reverseGlyphs(s)
+        return I18n.reverseWrapped(upright, width: width,
+                                   font: .systemFont(ofSize: NSFont.systemFontSize))
     }
 }
 
@@ -2289,6 +2336,58 @@ final class WakeWatcher {
 
 // MARK: - App
 
+// MARK: - 窗体排版
+// 六处对话框原先各写各的宽度与字号，同一个 App 里像出自不同人之手。
+// 这里定一套尺寸与字级：一致本身就是可预测性——同样的东西长得一样、
+// 在同样的位置，用户第二次就不必重新辨认。
+// 间距取 8pt 的整数倍（macOS 的惯用节奏），字级只留三档，够用且不乱。
+enum UI {
+    /// 内容宽度。定 480：容得下命令编辑框里的等宽命令，
+    /// 又不超出对话框正文的可读行宽——再宽，眼睛回行就开始费劲
+    static let W: CGFloat = 480
+    static let gap: CGFloat = 8          // 相邻控件
+    static let group: CGFloat = 24       // 分组之间：留白就是分组，胜过画线
+    static let ctrlH: CGFloat = 26       // 下拉、按钮
+    static let fieldH: CGFloat = 24      // 输入框
+    static let rowH: CGFloat = 24        // 勾选行
+    static let labelH: CGFloat = 16
+
+    /// 分组标题：加粗小字、次级色。靠字重而非字号拉开层次，省空间
+    static func section(_ s: String, y: CGFloat, width: CGFloat = W) -> NSTextField {
+        let l = NSTextField(labelWithString: s)
+        l.font = .boldSystemFont(ofSize: 11)
+        l.textColor = .secondaryLabelColor
+        l.frame = NSRect(x: 0, y: y, width: width, height: labelH)
+        return l
+    }
+
+    /// 正文标签：与控件同一档字号，并排时基线才齐
+    static func body(_ s: String, y: CGFloat, width: CGFloat = W) -> NSTextField {
+        let l = NSTextField(labelWithString: s)
+        l.font = .systemFont(ofSize: 11)
+        l.frame = NSRect(x: 0, y: y, width: width, height: labelH)
+        return l
+    }
+
+    /// 附注：更小、更淡、可折行。说明性文字不该与正文抢注意力
+    static func note(_ s: String, y: CGFloat, width: CGFloat = W, height: CGFloat = 52) -> NSTextField {
+        let l = NSTextField(wrappingLabelWithString: s)
+        l.font = .systemFont(ofSize: 10)
+        l.textColor = .tertiaryLabelColor
+        l.frame = NSRect(x: 0, y: y, width: width, height: height)
+        return l
+    }
+
+    /// 带边框的滚动列表：勾选项多时统一这一种容器
+    static func list(height: CGFloat, width: CGFloat = W) -> NSScrollView {
+        let s = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        s.hasVerticalScroller = true
+        s.borderType = .bezelBorder
+        s.autohidesScrollers = true
+        return s
+    }
+}
+
 @main
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSTextFieldDelegate {
     static var shared: AppDelegate?
@@ -2321,6 +2420,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 短命进程，不参与下面的单实例判定）
         // 曝光探测：诊断用，输出亮度随时间的变化曲线
         if CommandLine.arguments.contains("--exposure-probe") { CameraSnap.probeExposure() }
+        // 文言折行自检：整段倒置与逐行倒排肉眼难分，必须能打出来看
+        if CommandLine.arguments.contains("--lzh-demo") {
+            I18n.shared.load(preferred: "lzh")
+            for key in [195, 211, 74] {
+                print("── 键 \(key) ──")
+                print(I18n.shared.paragraph(T(key)))
+                print("")
+            }
+            exit(0)
+        }
         // USB 归类自检：归错类的后果是让人丢数据，必须能当场验
         if CommandLine.arguments.contains("--usb-list") {
             for d in Sys.usbDevices() {
@@ -2781,6 +2890,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             langMenu.addItem(langRow(c, n))
         }
 
+        // 语言包定做：一个开关，对当前语言生效——哪种语言都可能有人要改
+        langMenu.addItem(.separator())
+        let devItem = NSMenuItem(title: T(219), action: #selector(toggleShowKeys),
+                                 keyEquivalent: "")
+        devItem.target = self
+        devItem.state = I18n.showKeys ? .on : .off
+        langMenu.addItem(devItem)
+
         langMenu.addItem(.separator())
         let editCur = NSMenuItem(title: T(71), action: #selector(editCurrentLang), keyEquivalent: "")
         editCur.target = self
@@ -2806,14 +2923,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.informativeText = T(108)
         alert.alertStyle = .informational
 
-        let rowH = 24
-        let W = 340
+        let rowH = Int(UI.rowH)
+        let W = Int(UI.W)
         let contentH = services.count * rowH + 4
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: min(300, contentH)))
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .noBorder
-        scroll.drawsBackground = false
-        let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16, height: contentH))
+        let scroll = UI.list(height: CGFloat(min(300, contentH)))
+        let doc = NSView(frame: NSRect(x: 0, y: 0, width: CGFloat(W) - 16, height: CGFloat(contentH)))
         var boxes: [NSButton] = []
         var y = contentH - rowH
         for (svc, dev) in services {
@@ -2871,6 +2985,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
     }
 
+    /// 语言包定做模式开关：每条文案前挂上它的序号，改语言包时对号入座
+    @objc func toggleShowKeys() {
+        I18n.showKeys.toggle()
+        refreshIcon()
+    }
+
     @objc func setIconMode(_ sender: NSMenuItem) {
         guard let mode = IconMode(rawValue: sender.tag) else { return }
         // 隐藏前先当面说清找回方法（事后通知易被错过）：再打开一次 App 图标即恢复
@@ -2897,8 +3017,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         a.messageText = T(53)
         a.informativeText = I18n.shared.paragraph(T(54))
 
-        let W = 480
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 430))
+        let W = Int(UI.W)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: CGFloat(W), height: 430))
 
         func makeCmdBox(_ frame: NSRect, text: String) -> (NSScrollView, NSTextView) {
             let scroll = NSScrollView(frame: frame)
@@ -2952,15 +3072,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !Agreement.hasRecord(kind: "camera-enable") {
                 let a = NSAlert()
                 a.messageText = T(136)
-                let sv = NSScrollView(frame: NSRect(x: 0, y: 0, width: 460, height: 240))
+                let sv = UI.list(height: 240)
                 let terms = NSTextView(frame: sv.bounds)
                 terms.string = Agreement.cameraTerms
                 terms.isEditable = false
-                terms.font = NSFont.systemFont(ofSize: 11)
+                terms.font = .systemFont(ofSize: 11)
+                terms.textContainerInset = NSSize(width: UI.gap, height: UI.gap)  // 条款正文别贴边
                 terms.autoresizingMask = [.width]
                 sv.documentView = terms
-                sv.hasVerticalScroller = true
-                sv.borderType = .bezelBorder
                 a.accessoryView = sv
                 a.addButton(withTitle: T(17))
                 a.addButton(withTitle: T(18))
@@ -3079,10 +3198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var rows: [NSView] = []
         for (header, items) in presets {
             if let h = header {
-                let lbl = NSTextField(labelWithString: h)
-                lbl.font = NSFont.boldSystemFont(ofSize: 11)
-                lbl.textColor = .secondaryLabelColor
-                rows.append(lbl)
+                rows.append(UI.section(h, y: 0))   // y 由下面的布局统一安排
             }
             for p in items {
                 let cb = NSButton(checkboxWithTitle: p.title, target: nil, action: nil)
@@ -3403,10 +3519,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         a.informativeText = I18n.shared.paragraph(T(211))
         a.alertStyle = .warning
 
-        let W: CGFloat = 460, rh: CGFloat = 24
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 230))
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
+        let W = UI.W, rh = UI.rowH
+        let scroll = UI.list(height: 230)
         // 分组标题也占位，高度要算进去
         let groups: [(Sys.USBKind, Int)] = [(.network, 215), (.other, 216), (.data, 217), (.hub, 218)]
         let shown = groups.map { g in (g, devs.filter { $0.3 == g.0 }) }.filter { !$0.1.isEmpty }
@@ -3416,11 +3530,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var boxes: [(NSButton, (String, String, String))] = []
         var y = doc.frame.height - rh
         for ((kind, titleKey), list) in shown {
-            let hdr = NSTextField(labelWithString: T(titleKey))
-            hdr.font = NSFont.boldSystemFont(ofSize: 11)
-            // 数据类是这个界面里唯一会让人丢东西的一组，标红提醒，不与其他组同色
-            hdr.textColor = kind.risky ? .systemRed : .secondaryLabelColor
-            hdr.frame = NSRect(x: 6, y: y + 2, width: W - 32, height: 16)
+            let hdr = UI.section(T(titleKey), y: y + 2, width: W - 32)
+            // 有风险的那两组是这个界面里唯一会让人丢东西的，标红，不与其他组同色
+            if kind.risky { hdr.textColor = .systemRed }
+            hdr.frame.origin.x = 6
             doc.addSubview(hdr)
             y -= rh
             for d in list {
@@ -3723,20 +3836,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         a.messageText = T(180)
         a.informativeText = I18n.shared.paragraph(T(195))
 
-        let W: CGFloat = 460
-        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 158))
-
-        func label(_ s: String, _ y: CGFloat, bold: Bool = true) -> NSTextField {
-            let l = NSTextField(labelWithString: s)
-            l.font = bold ? NSFont.boldSystemFont(ofSize: 11) : NSFont.systemFont(ofSize: 11)
-            l.textColor = .secondaryLabelColor
-            l.frame = NSRect(x: 0, y: y, width: W, height: 16)
-            return l
-        }
+        let W = UI.W
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 156))
         // 当前版本 / 已就绪的更新
         var head = "LTE Guard \(cur)"
         if let ready = Updater.readyVersion { head += "　·　" + T(167, ready) }
-        box.addSubview(label(head, 138))
+        box.addSubview(UI.section(head, y: 136))
 
         // 「自动安装」是个明确的勾选：勾了才装，不勾就只下好并提示一声
         let auto = NSButton(checkboxWithTitle: T(197), target: nil, action: nil)
@@ -3744,12 +3849,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auto.frame = NSRect(x: 0, y: 100, width: W, height: 20)
         box.addSubview(auto)
 
-        let ivLabel = NSTextField(labelWithString: T(198))
-        ivLabel.font = NSFont.systemFont(ofSize: 11)
-        ivLabel.frame = NSRect(x: 0, y: 76, width: 72, height: 16)
-        box.addSubview(ivLabel)
-
-        let pop = NSPopUpButton(frame: NSRect(x: 76, y: 72, width: 160, height: 26), pullsDown: false)
+        // 间隔是「自动安装」的从属条件，缩进一格，从属关系一眼可见
+        box.addSubview(UI.body(T(198), y: 72, width: 72))
+        let pop = NSPopUpButton(frame: NSRect(x: 76, y: 68, width: 160, height: UI.ctrlH), pullsDown: false)
         for (_, key) in Updater.intervalChoices { pop.addItem(withTitle: T(key)) }
         let idx = Updater.intervalChoices.firstIndex { $0.0 == cfg.updateInterval } ?? 0
         pop.selectItem(at: idx)
@@ -3757,18 +3859,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let daily = NSButton(checkboxWithTitle: T(169), target: nil, action: nil)
         daily.state = Updater.autoCheck ? .on : .off
-        daily.frame = NSRect(x: 250, y: 74, width: W - 250, height: 20)
+        daily.frame = NSRect(x: 250, y: 70, width: W - 250, height: 20)
         box.addSubview(daily)
 
         // 安装包去向说明——静默更新会不声不响地装，更要讲清包放在哪
-        let note = NSTextField(wrappingLabelWithString: T(164))
-        note.font = NSFont.systemFont(ofSize: 10)
-        note.textColor = .tertiaryLabelColor
-        note.frame = NSRect(x: 0, y: 0, width: W, height: 60)
-        box.addSubview(note)
+        box.addSubview(UI.note(I18n.shared.paragraph(T(164), width: W - 8), y: 0, height: 56))
 
         // 各版本概要是「去看看」，不是对设置的表态，放进界面里做按钮
-        let logBtn = NSButton(frame: NSRect(x: W - 150, y: 126, width: 150, height: 24))
+        let logBtn = NSButton(frame: NSRect(x: W - 150, y: 130, width: 150, height: UI.fieldH))
         logBtn.bezelStyle = .rounded
         logBtn.title = T(172)
         logBtn.target = self; logBtn.action = #selector(openChangelog)
@@ -3833,16 +3931,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         a.messageText = T(184)
         a.informativeText = I18n.shared.paragraph(T(185))
 
-        let W: CGFloat = 480
+        let W = UI.W
         let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 318))
-
-        func label(_ t: String, _ y: CGFloat) -> NSTextField {
-            let l = NSTextField(labelWithString: t)
-            l.font = NSFont.boldSystemFont(ofSize: 11)
-            l.textColor = .secondaryLabelColor
-            l.frame = NSRect(x: 0, y: y, width: W, height: 16)
-            return l
-        }
+        func label(_ t: String, _ y: CGFloat) -> NSTextField { UI.section(t, y: y, width: W) }
         box.addSubview(label(T(92), 296))
 
         let pop = NSPopUpButton(frame: NSRect(x: 0, y: 264, width: 210, height: 26), pullsDown: false)
