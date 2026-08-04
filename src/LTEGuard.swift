@@ -383,11 +383,11 @@ enum Updater {
     static func downloadAndInstall(version: String, dmg: String, pkg: String) {
         Notifier.post(T(160, version))
         DispatchQueue.global(qos: .userInitiated).async {
-            // App 目录可写就用 dmg 直接替换，否则用 pkg 交系统安装器
-            let selfWritable = FileManager.default.isWritableFile(atPath: Bundle.main.bundlePath)
-            let useDmg = selfWritable && !dmg.isEmpty
-            let path = useDmg ? download(dmg, name: "LTEGuard-\(version).dmg")
-                              : download(pkg, name: "LTEGuard-\(version).pkg")
+            // 一律取 pkg。install() 只认 pkg（靠 pkgutil 自解包才免提权），
+            // 这里若还下 dmg，拿到手也只能失败回退——2.43 改过静默那条路，
+            // 这条「用户手动点下载」的路当时漏了
+            _ = dmg
+            let path = download(pkg, name: "LTEGuard-\(version).pkg")
             Auth.onMain {
                 guard let path = path else { Notifier.post(T(162, version)); return }
                 install(path: path, version: version)
