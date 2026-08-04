@@ -136,18 +136,25 @@ LTE Guard is a watchdog that sits in your menu bar and listens for system wake e
 
 ## Install
 
-**Option 1 — download a package** (see [Releases](../../releases))
+**Recommended — install once from the command line, then let it update itself**
 
-- `LTEGuard-x.y.z.dmg` — drag into Applications
-- `LTEGuard-x.y.z.pkg` — double-click; sets up launch-at-login automatically
+```bash
+curl -L -o /tmp/LTEGuard.pkg https://github.com/oceantangqoit/Mac-lte-guard/releases/latest/download/LTEGuard.pkg && open /tmp/LTEGuard.pkg
+```
 
-On first launch macOS may say the developer cannot be verified (normal for unsigned apps): **right-click the app → Open → Open**, or run
+That URL always points at the newest release (every release ships a version-less copy).
+
+**Why not download it in a browser?** This project is neither signed nor notarized (that needs a $99/year Apple developer account). Files downloaded by a browser carry the `com.apple.quarantine` flag, so double-clicking gets you "cannot verify whether it contains malware" and you have to right-click → Open or allow it in System Settings. `curl` does not set that flag, so the install just works — **this is not bypassing a security check, it is simply not having the browser attach the label.** If you would rather be careful, check the SHA-256 first, or build it yourself below.
+
+**After this one install you can forget about it.** Open **Update…** in the menu, tick **Silent update** and pick an interval; from then on it checks, downloads and installs on its own and restarts when done, without interrupting you. It downloads with `curl` too, so the warning never comes up.
+
+**If you prefer clicking**: grab `LTEGuard-x.y.z.pkg` (double-click; sets up launch-at-login) or `.dmg` (drag into Applications) from [Releases](../../releases). On first launch, when macOS says the developer cannot be verified: **right-click the app → Open → Open**, or run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 ```
 
-**Option 2 — build it yourself** (requires Xcode Command Line Tools)
+**Option 3 — build it yourself** (requires Xcode Command Line Tools)
 
 ```bash
 git clone https://github.com/oceantangqoit/Mac-lte-guard.git

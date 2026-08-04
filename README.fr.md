@@ -126,18 +126,25 @@ LTE Guard est un gardien qui réside dans la barre des menus : il écoute les é
 
 ## Installation
 
-**Méthode 1 : télécharger le paquet d'installation** ([Releases](../../releases))
+**Recommandé — installez une fois en ligne de commande, puis laissez-le se mettre à jour tout seul**
 
-- `LTEGuard-x.y.z.dmg` — à glisser dans Applications
-- `LTEGuard-x.y.z.pkg` — double-cliquez pour installer, le lancement au démarrage est configuré automatiquement
+```bash
+curl -L -o /tmp/LTEGuard.pkg https://github.com/oceantangqoit/Mac-lte-guard/releases/latest/download/LTEGuard.pkg && open /tmp/LTEGuard.pkg
+```
 
-Si macOS indique au premier lancement que le développeur ne peut pas être vérifié (message normal pour une app non signée) : **clic droit sur l'app → Ouvrir → Ouvrir**, ou dans le Terminal
+Cette adresse pointe toujours vers la dernière version (chaque publication inclut une copie sans numéro de version).
+
+**Pourquoi éviter le navigateur ?** Ce projet n'est ni signé ni notarié (cela demanderait un compte développeur Apple à 99 $ par an). Les fichiers téléchargés par un navigateur portent l'attribut `com.apple.quarantine` : au double-clic, macOS annonce qu'il « ne peut pas vérifier l'absence de logiciel malveillant » et il faut passer par clic droit → Ouvrir, ou l'autoriser dans les Réglages. `curl` ne pose pas cet attribut — **cela ne contourne aucun contrôle de sécurité, cela évite simplement que le navigateur colle l'étiquette.** Par prudence, vérifiez l'empreinte SHA-256, ou compilez vous-même ci-dessous.
+
+**Après cette installation, vous n'y pensez plus.** Ouvrez **Mise à jour…** dans le menu, cochez **Mise à jour silencieuse** et choisissez un intervalle ; le programme cherchera, téléchargera et installera tout seul, puis redémarrera, sans vous déranger. Il télécharge également avec `curl`, l'avertissement ne revient donc jamais.
+
+**Si vous préférez cliquer** : prenez `LTEGuard-x.y.z.pkg` (double-clic, configure le lancement au démarrage) ou `.dmg` (à glisser dans « Applications ») depuis les [Releases](../../releases). Au premier lancement, si macOS dit ne pas pouvoir vérifier le développeur : **clic droit sur l'app → Ouvrir → Ouvrir**, ou :
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 ```
 
-**Méthode 2 : compiler soi-même** (les outils en ligne de commande Xcode sont requis)
+**Option 3 — compiler soi-même** (nécessite les outils en ligne de commande Xcode)
 
 ```bash
 git clone https://github.com/oceantangqoit/Mac-lte-guard.git

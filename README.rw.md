@@ -111,18 +111,25 @@ LTE Guard ni umurinzi uguma ku murongo w'ibikubiyemo, utega amatwi ibyabaye byo 
 
 ## Kwinjiza
 
-**Uburyo bwa mbere: kuramo agapaki ko kwinjiza** ([Releases](../../releases))
+**Birasabwa — shyiraho rimwe ukoresheje umurongo w'amabwiriza, hanyuma ureke yivugurure ubwayo**
 
-- `LTEGuard-x.y.z.dmg` — uyikurure uyishyire muri Applications
-- `LTEGuard-x.y.z.pkg` — kanda kabiri winjize, gutangira igihe mudasobwa yatangiye bishyirwaho byonyine
+```bash
+curl -L -o /tmp/LTEGuard.pkg https://github.com/oceantangqoit/Mac-lte-guard/releases/latest/download/LTEGuard.pkg && open /tmp/LTEGuard.pkg
+```
 
-Niba igihe ufunguye bwa mbere byanditse ngo «ntidushobora kugenzura uwabikoze» (bisanzwe ku maporogaramu adafite umukono): **kanda iburyo kuri porogaramu → Fungura → Fungura**, cyangwa muri Terminal ukoreshe
+Iyi aderesi buri gihe yerekeza kuri verisiyo nshya (buri isohorwa rifite kopi idafite nomero ya verisiyo).
+
+**Kuki tutayikuye muri mushakisha?** Uyu mushinga ntabwo washyizweho umukono cyangwa ngo wemezwe na Apple (byasaba konti y'umuhanzi ya $99 ku mwaka). Amadosiye akuwe na mushakisha aherekezwa n'ikimenyetso `com.apple.quarantine`, bityo iyo ukanze kabiri macOS ikavuga ko «idashobora kugenzura niba irimo porogaramu mbi», ugasabwa kuyifungura ukoresheje kanda iburyo cyangwa kuyemerera mu igenamiterere. `curl` we ntashyiraho icyo kimenyetso — **ibi si ugusimbuka igenzura ry'umutekano, ni ukudatuma mushakisha yomeka ako kamenyetso gusa.** Niba ushaka kwitonda, banza ugenzure SHA-256, cyangwa uyubake wenyine nk'uko bivugwa hepfo.
+
+**Nyuma yo gushyiraho kariya karundi kamwe, ntukibyibuke.** Fungura **Ivugurura…** mu bikubiyemo, ushyire akamenyetso kuri **Ivugurura ryihishe** hanyuma uhitemo igihe; guhera ubwo porogaramu izagenzura, ikure, kandi ishyireho yonyine, hanyuma yongere itangire, itakubangamiye. Ikuramo na yo ikoresha `curl`, bityo iburira ntirizongera kugaragara.
+
+**Niba uhitamo gukanda**: fata `LTEGuard-x.y.z.pkg` (kanda kabiri; ishyiraho gutangira ku ifungura) cyangwa `.dmg` (uyikurure ujye muri «Porogaramu») kuri [Releases](../../releases). Ku itangira rya mbere, iyo macOS ivuze ko idashobora kugenzura uwayikoze: **kanda iburyo kuri porogaramu → Fungura → Fungura**, cyangwa:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 ```
 
-**Uburyo bwa kabiri: kuyubaka ubwawe** (bisaba Xcode command line tools)
+**Uburyo bwa 3 — kuyubaka wenyine** (bisaba ibikoresho by'umurongo w'amabwiriza bya Xcode)
 
 ```bash
 git clone https://github.com/oceantangqoit/Mac-lte-guard.git

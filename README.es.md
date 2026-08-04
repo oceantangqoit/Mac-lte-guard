@@ -127,18 +127,25 @@ LTE Guard es una herramienta residente en la barra de menús que escucha los eve
 
 ## Instalación
 
-**Opción 1: descargar el paquete** ([Releases](../../releases))
+**Recomendado — instale una vez desde la línea de órdenes y deje que se actualice solo**
 
-- `LTEGuard-x.y.z.dmg` — arrástralo a Aplicaciones
-- `LTEGuard-x.y.z.pkg` — doble clic para instalar; configura el arranque automático
+```bash
+curl -L -o /tmp/LTEGuard.pkg https://github.com/oceantangqoit/Mac-lte-guard/releases/latest/download/LTEGuard.pkg && open /tmp/LTEGuard.pkg
+```
 
-Si al abrirlo por primera vez aparece «no se puede verificar el desarrollador» (el aviso normal de una app sin firmar): **clic derecho en la app → Abrir → Abrir de nuevo**, o ejecuta en el Terminal
+Esa dirección apunta siempre a la versión más reciente (cada publicación incluye una copia sin número de versión).
+
+**¿Por qué no descargarlo con el navegador?** Este proyecto no está firmado ni notarizado (haría falta una cuenta de desarrollador de Apple de 99 $ al año). Los archivos que descarga un navegador llevan la marca `com.apple.quarantine`, así que al hacer doble clic macOS avisa de que «no puede verificar si contiene software malicioso» y hay que abrirlo con clic derecho o permitirlo en Ajustes. `curl` no pone esa marca — **esto no salta ninguna comprobación de seguridad, simplemente evita que el navegador le ponga la etiqueta.** Si prefiere asegurarse, compruebe antes el SHA-256, o compílelo usted mismo más abajo.
+
+**Tras esta única instalación puede olvidarse.** Abra **Actualización…** en el menú, marque **Actualización silenciosa** y elija un intervalo; a partir de ahí el programa busca, descarga e instala por su cuenta y se reinicia al terminar, sin molestarle. También descarga con `curl`, así que el aviso no vuelve a aparecer.
+
+**Si prefiere hacer clic**: descargue `LTEGuard-x.y.z.pkg` (doble clic; configura el arranque automático) o `.dmg` (arrástrelo a «Aplicaciones») desde [Releases](../../releases). En el primer arranque, cuando macOS diga que no puede verificar al desarrollador: **clic derecho en la app → Abrir → Abrir**, o:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 ```
 
-**Opción 2: compilarlo tú mismo** (requiere las herramientas de línea de comandos de Xcode)
+**Opción 3 — compilarlo usted mismo** (requiere las herramientas de línea de órdenes de Xcode)
 
 ```bash
 git clone https://github.com/oceantangqoit/Mac-lte-guard.git
