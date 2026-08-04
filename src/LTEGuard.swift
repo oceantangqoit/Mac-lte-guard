@@ -4326,8 +4326,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !LaunchAtLogin.isEnabled { LaunchAtLogin.set(true) }
         }
         LaunchAtLogin.alwaysOn = turningOn
-        Sys.log(T(227, T(turningOn ? 133 : 134)))
-        notify(T(227, T(turningOn ? 133 : 134)))
+        // 开与关各用各的句子。先前拿 133/134 当通用的「已开启/已关闭」，
+        // 那两条是敏感操作验证的专用文案，套到这里就成了驴唇不对马嘴
+        Sys.log(T(turningOn ? 227 : 228))
+        notify(T(turningOn ? 227 : 228))
         refreshIcon()
     }
 
