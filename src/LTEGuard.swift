@@ -1136,8 +1136,10 @@ final class I18n {
         // 排序：汉语及其方言 → 中国少数民族语言 → 其他（按代码）
         let priority = [
             // 汉语及其方言
-            "zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei", "cmn-henan",
-            "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan", "hak", "wuu", "wuu-shanghai", "lzh",
+            // 文言紧随简繁体之后：它是汉语的书面源头，不属地域方言
+            "zh-Hans", "zh-Hant", "zh-Hant-HK", "lzh",
+            "yue", "cmn-sichuan", "cmn-dongbei", "cmn-henan",
+            "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan", "hak", "wuu", "wuu-shanghai",
             // 中国少数民族语言
             "bo", "ug", "mn-Mong", "kk", "za", "ko-CN",
             // 邻近与友好国家
@@ -2362,9 +2364,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// 语言菜单：中文及方言、中国少数民族语言各收进子目录，其余平铺
     private func languageItem() -> NSMenuItem {
-        let zhCodes: Set<String> = ["zh-Hans", "zh-Hant", "yue", "cmn-sichuan", "cmn-dongbei",
-            "cmn-henan", "cmn-shaanxi", "hsn", "cmn-xinjiang", "nan", "nan-chaoshan",
-            "hak", "wuu", "wuu-shanghai", "lzh"]
+        let zhCodes: Set<String> = ["zh-Hans", "zh-Hant", "zh-Hant-HK", "lzh", "yue",
+            "cmn-sichuan", "cmn-dongbei", "cmn-henan", "cmn-shaanxi", "hsn",
+            "cmn-xinjiang", "nan", "nan-chaoshan", "hak", "wuu", "wuu-shanghai"]
         let minorityCodes: Set<String> = ["bo", "ug", "mn-Mong", "kk", "za", "ko-CN"]
 
         func langRow(_ code: String, _ name: String) -> NSMenuItem {
