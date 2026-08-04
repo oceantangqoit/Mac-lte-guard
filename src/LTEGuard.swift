@@ -2228,6 +2228,14 @@ enum LaunchAtLogin {
     static let label = "com.oceantang.lteguard"
     static var plistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(label).plist" }
 
+    /// 永不退出：值守工具关掉就等于没在守。开了它，连用户自己点退出
+    /// 也会被立刻拉起来——这是有意的，所以必须是用户自己勾的，
+    /// 且勾的时候要当面把话说清
+    static var alwaysOn: Bool {
+        get { UserDefaults.standard.bool(forKey: "alwaysOn") }
+        set { UserDefaults.standard.set(newValue, forKey: "alwaysOn"); if isEnabled { set(true) } }
+    }
+
     static var isEnabled: Bool {
         guard FileManager.default.fileExists(atPath: plistPath),
               let t = try? String(contentsOfFile: plistPath, encoding: .utf8) else { return false }
@@ -2240,7 +2248,8 @@ enum LaunchAtLogin {
     static func upgradeIfNeeded() {
         guard isEnabled,
               let t = try? String(contentsOfFile: plistPath, encoding: .utf8),
-              !t.contains("--background") || t.contains("<key>KeepAlive</key><true/>")
+              !t.contains("--background")
+                || (t.contains("<key>KeepAlive</key><true/>") && !alwaysOn)
         else { return }
         set(true)
     }
@@ -2260,7 +2269,7 @@ enum LaunchAtLogin {
         <key>Label</key><string>\(label)</string>
         <key>ProgramArguments</key><array><string>\(exe)</string><string>--background</string></array>
         <key>RunAtLoad</key><true/>
-        <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+        <key>KeepAlive</key>\(alwaysOn ? "<true/>" : "<dict><key>SuccessfulExit</key><false/></dict>")
         </dict></plist>
         """
         try? plist.write(toFile: plistPath, atomically: true, encoding: .utf8)
@@ -2536,7 +2545,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let lockPath = I18n.appSupportDir + "/.instance.lock"
         let lockFD = open(lockPath, O_CREAT | O_RDWR, 0o644)
         if lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
-            exit(0)                     // 锁在别人手里，说明已有一个在跑
+            // 锁在别人手里，说明已有一个在跑。但用户双击图标是想「看到」它，
+            // 不是想再开一个——直接退会显得「点了没反应，App 打不开」。
+            // 先转告在跑的那个把图标亮出来，再退。
+            DistributedNotificationCenter.default().postNotificationName(
+                .init("com.oceantang.lteguard.reopen"), object: nil, deliverImmediately: true)
+            exit(0)
         }
         // 锁不上（磁盘异常等）就退回旧办法，至少还有一道
         if lockFD < 0 {
@@ -2589,7 +2603,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// 被用户主动唤起：确保图标露面，便于修改设置
     /// - 隐藏模式：直接恢复为「始终显示」（否则永远没有入口）
     /// - 仅异常时显示：保留偏好，但临时强制显示一段时间供操作
-    private func unhideIfNeeded() {
+    func unhideIfNeeded() {
         switch IconMode.current {
         case .hidden:
             IconMode.current = .always
@@ -2647,6 +2661,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
             }
+        }
+        // 第二个进程被文件锁挡下时会发来这条：用户点了图标，想看到我
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("com.oceantang.lteguard.reopen"), object: nil, queue: .main) { [weak self] _ in
+            self?.unhideIfNeeded()
+            NSApp.activate(ignoringOtherApps: true)
         }
         LaunchAtLogin.upgradeIfNeeded()
         // 非后台自启（即用户主动打开）时，确保图标可见，避免隐藏后找不回来
@@ -2831,6 +2851,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let setMenu = sub()
         setMenu.addItem(item(T(30), #selector(toggleLaunch),
                              state: LaunchAtLogin.isEnabled ? .on : .off, symbol: "power.circle"))
+        setMenu.addItem(item(T(225), #selector(toggleAlwaysOn),
+                             state: LaunchAtLogin.alwaysOn ? .on : .off, symbol: "lock.rotation"))
         setMenu.addItem(item(T(132), #selector(toggleAuthGuard),
                              state: Auth.guardEnabled ? .on : .off, symbol: "touchid"))
         // 菜单栏图标显示方式
@@ -4248,6 +4270,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func editNotifyGated()     { Auth.gate("notify") { [weak self] in self?.editNotify() } }
 
     /// 开关本身也要防绕过：开启随手，关闭需验证
+    /// 永不退出：开着它，连用户自己点退出也会被立刻拉起来。
+    /// 这是有意的行为，但必须当面讲清楚，否则用户会以为「退不掉」是故障
+    @objc func toggleAlwaysOn() {
+        let turningOn = !LaunchAtLogin.alwaysOn
+        if turningOn {
+            let a = NSAlert()
+            a.messageText = T(225)
+            a.informativeText = I18n.shared.paragraph(T(226))
+            a.alertStyle = .informational
+            a.addButton(withTitle: T(17))
+            a.addButton(withTitle: T(18))
+            NSApp.activate(ignoringOtherApps: true)
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            // 保活的前提是有 LaunchAgent，没开机自启就一并开了
+            if !LaunchAtLogin.isEnabled { LaunchAtLogin.set(true) }
+        }
+        LaunchAtLogin.alwaysOn = turningOn
+        Sys.log(T(227, T(turningOn ? 133 : 134)))
+        notify(T(227, T(turningOn ? 133 : 134)))
+        refreshIcon()
+    }
+
     @objc func toggleAuthGuard() {
         if Auth.guardEnabled {
             Auth.require { [weak self] in
