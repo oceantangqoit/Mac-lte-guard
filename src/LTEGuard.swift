@@ -2439,6 +2439,21 @@ enum UI {
         return l
     }
 
+    /// 悬停提示折行。一句话不折，toolTip 会铺成一长条顶出屏幕，
+    /// 越是要紧的说明越看不全。按显示宽度折——汉字算两格，拉丁算一格
+    static func tip(_ s: String, cols: Int = 30) -> String {
+        var out = "", line = 0
+        for ch in s {
+            if ch == "\n" { out.append(ch); line = 0; continue }
+            let w = ch.isASCII ? 1 : 2
+            if line + w > cols, ch != "，", ch != "。", ch != "、" {
+                out.append("\n"); line = 0
+            }
+            out.append(ch); line += w
+        }
+        return out
+    }
+
     /// 带边框的滚动列表：勾选项多时统一这一种容器
     static func list(height: CGFloat, width: CGFloat = W) -> NSScrollView {
         let s = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: height))
@@ -2870,7 +2885,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                                     action: #selector(resetUSBDevice(_:)), keyEquivalent: "")
                 di.target = self
                 di.representedObject = "\(vid) \(pid) \(name)"
-                di.toolTip = kind.why.map { T($0) }
+                di.toolTip = kind.why.map { UI.tip(T($0)) }
                 usbMenu.addItem(di)
             }
         }
@@ -3606,14 +3621,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cb.state = cfg.usbGuards.contains { $0.vid == d.0 && $0.pid == d.1 } ? .on : .off
                 cb.frame = NSRect(x: 18, y: y, width: W - 44, height: 20)
                 if kind.risky { cb.contentTintColor = .systemRed }
-                cb.toolTip = kind.why.map { T($0) }
+                cb.toolTip = kind.why.map { UI.tip(T($0)) }
                 doc.addSubview(cb)
                 boxes.append((cb, (d.0, d.1, d.2)))
                 y -= rh
             }
         }
         scroll.documentView = doc
-        a.accessoryView = scroll
+        // 风险组的缘由在窗体里完整摆出来——这是要人当场看懂的事，
+        // 不该藏在悬停提示后面等人去发现
+        let risky = shown.map(\.0.0).filter(\.risky).compactMap(\.why)
+        if risky.isEmpty {
+            a.accessoryView = scroll
+        } else {
+            let text = risky.map { T($0) }.joined(separator: "\n")
+            let note = UI.note(I18n.shared.paragraph(text, width: UI.W - 8),
+                               y: 0, height: CGFloat(risky.count) * 30 + 8)
+            let box = NSView(frame: NSRect(x: 0, y: 0, width: UI.W,
+                                           height: scroll.frame.height + note.frame.height + UI.gap))
+            scroll.frame.origin.y = note.frame.height + UI.gap
+            box.addSubview(scroll)
+            box.addSubview(note)
+            a.accessoryView = box
+        }
         a.addButton(withTitle: T(17))
         a.addButton(withTitle: T(18))
         NSApp.activate(ignoringOtherApps: true)
@@ -3880,8 +3910,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let a = NSAlert()
         a.messageText = "LTE Guard \(ver)"
-        a.informativeText = I18n.shared.paragraph("\(T(57))\n\n\(T(64))\n\(T(66))\n\(T(65))\n\n\(T(70))\n\n\(T(59))")
+        a.informativeText = T(57)           // 开源免费 · MIT 协议
         a.alertStyle = .informational
+
+        // 「关于」原本是纯 NSAlert，宽度由系统定，比别的窗体窄一截。
+        // 给它同样的容器，全家就一般宽了；顺带把作者信息与那段
+        // AI 翻译声明分开字级——前者是事实，后者是提醒，本就不该同重
+        let W = UI.W
+        let note = UI.note(I18n.shared.paragraph(T(70), width: W - 8), y: 30, height: 64)
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 158))
+        box.addSubview(UI.body(T(64), y: 138))      // 作者
+        box.addSubview(UI.body(T(66), y: 118))      // 所在地
+        box.addSubview(UI.body(T(65), y: 98))       // 邮箱
+        box.addSubview(note)
+        box.addSubview(UI.body(T(59), y: 4))        // 请我喝咖啡
+        a.accessoryView = box
+
         a.addButton(withTitle: T(58))       // 项目主页
         a.addButton(withTitle: T(17))       // 确定
         NSApp.activate(ignoringOtherApps: true)
