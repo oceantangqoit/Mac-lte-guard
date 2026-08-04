@@ -2243,7 +2243,11 @@ enum LaunchAtLogin {
     /// 且勾的时候要当面把话说清
     static var alwaysOn: Bool {
         get { UserDefaults.standard.bool(forKey: "alwaysOn") }
-        set { UserDefaults.standard.set(newValue, forKey: "alwaysOn"); if isEnabled { set(true) } }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "alwaysOn")
+            UserDefaults.standard.synchronize()   // 立刻落盘：下一步可能就把自己重启了
+            if isEnabled { set(true) }
+        }
     }
 
     static var isEnabled: Bool {
@@ -2264,12 +2268,22 @@ enum LaunchAtLogin {
         set(true)
     }
 
+    /// 写 plist 并重载服务。
+    ///
+    /// 要紧的一点：`launchctl bootout` 会连带杀掉当前进程——App 正是这个
+    /// 服务拉起来的。所以卸载绝不能写在这里，否则它之后的每一行（写 plist、
+    /// bootstrap）都执行不到，改动等于没发生。卸载与重挂交给一个独立的
+    /// 小脚本，自己被杀之后它还在，能把服务按新 plist 挂回来。
     static func set(_ on: Bool) {
         let uid = getuid()
         let dir = NSHomeDirectory() + "/Library/LaunchAgents"
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        Sys.run("launchctl bootout gui/\(uid)/\(label) 2>/dev/null")
-        guard on else { try? FileManager.default.removeItem(atPath: plistPath); return }
+        guard on else {
+            // 关闭：先删文件再卸服务，顺序反了会被 KeepAlive 拉回来
+            try? FileManager.default.removeItem(atPath: plistPath)
+            Sys.run("launchctl bootout gui/\(uid)/\(label) 2>/dev/null")
+            return
+        }
         let exe = Bundle.main.bundlePath + "/Contents/MacOS/" +
             (Bundle.main.infoDictionary?["CFBundleExecutable"] as? String ?? "LTEGuard")
         let plist = """
@@ -2283,7 +2297,10 @@ enum LaunchAtLogin {
         </dict></plist>
         """
         try? plist.write(toFile: plistPath, atomically: true, encoding: .utf8)
-        Sys.run("launchctl bootstrap gui/\(uid) '\(plistPath)' 2>/dev/null")
+        // 重载由独立进程完成：bootout 会杀掉我们自己，之后的话得有人替我们说
+        let sh = "sleep 1; launchctl bootout gui/\(uid)/\(label) 2>/dev/null; "
+               + "launchctl bootstrap gui/\(uid) '\(plistPath)' 2>/dev/null"
+        Sys.run("nohup sh -c '\(sh)' >/dev/null 2>&1 &", wait: false)
     }
 }
 
@@ -4260,6 +4277,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // ── 敏感操作门禁（受「敏感操作需要验证」开关控制）──
     @objc func editPostCmdGated()    { Auth.gate("editcmd") { [weak self] in self?.editPostCmd() } }
     @objc func quitGated() {
+        // 开着「永不退出」时点退出，程序会消失一下又被拉回来。
+        // 那是设定如此，但不当面说一声，看着就像退不掉的故障
+        if LaunchAtLogin.alwaysOn {
+            let a = NSAlert()
+            a.messageText = T(225)
+            a.informativeText = I18n.shared.paragraph(T(226))
+            a.alertStyle = .informational
+            a.addButton(withTitle: T(17))
+            a.addButton(withTitle: T(18))
+            NSApp.activate(ignoringOtherApps: true)
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
         Auth.gate("quit") {
             // 退出守护前留一张（拍照功能开启时）：谁关的门卫，门卫先拍谁
             let cfg = Config.load()
