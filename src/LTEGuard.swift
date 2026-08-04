@@ -396,14 +396,17 @@ enum Updater {
     }
 
     /// 安装已下载的包：dmg 直接替换并重启；pkg 交系统安装器（会要密码）
-    static func install(path: String, version: String) {
-        let a = NSAlert()
-        a.messageText = T(161, version)
-        a.informativeText = I18n.shared.paragraph(T(165, path))
-        a.addButton(withTitle: T(17))
-        a.addButton(withTitle: T(18))
-        NSApp.activate(ignoringOtherApps: true)
-        guard a.runModal() == .alertFirstButtonReturn else { return }
+    /// silent = true 时不弹任何框，直接装。静默更新走的就是这条路。
+    static func install(path: String, version: String, silent: Bool = false) {
+        if !silent {
+            let a = NSAlert()
+            a.messageText = T(161, version)
+            a.informativeText = I18n.shared.paragraph(T(165, path))
+            a.addButton(withTitle: T(17))
+            a.addButton(withTitle: T(18))
+            NSApp.activate(ignoringOtherApps: true)
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
 
         // 程序即将被替换、进程随后重启——值守工具该在此刻留痕。
         // 此时刚下载完，网络必通；同步发送，确保消息先于重启送达。
@@ -415,7 +418,16 @@ enum Updater {
         }
 
         if path.hasSuffix(".pkg") {
-            NSWorkspace.shared.open(URL(fileURLWithPath: path))   // 系统安装器接手
+            // pkg 得由系统安装器接手，必然要人点、还要管理员密码——
+            // 静默模式下装不成，与其半途弹框破坏「无提示」的承诺，
+            // 不如老实退回「已就绪」，让用户自己挑时间装
+            if silent {
+                Sys.log(T(167, version))
+                Notifier.post(T(167, version))
+                Auth.onMain { AppDelegate.shared?.refreshIcon() }
+                return
+            }
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
             return
         }
         // dmg：挂载 → ditto 覆盖 → 卸载 → 重启自身
@@ -467,11 +479,18 @@ enum Updater {
             guard let file = selfWritable && !dmg.isEmpty
                     ? download(dmg, name: "LTEGuard-\(latest).dmg")
                     : download(pkg, name: "LTEGuard-\(latest).pkg") else { return }
-            Sys.log(T(208, cur, latest))
-            OpsNotify.report("update")
             // 记下这次是从哪个版本升上来的，供升级后的权限提示说明来龙去脉
             UserDefaults.standard.set(cur, forKey: "lastUpgradeFrom")
-            install(path: file, version: latest)   // 装完自动重启，全程不打扰
+            guard cfg.silentInstall else {
+                // 只下不装：留一条「已就绪」，由用户自己决定何时装
+                Sys.log(T(167, latest))
+                Notifier.post(T(167, latest))
+                Auth.onMain { AppDelegate.shared?.refreshIcon() }
+                return
+            }
+            Sys.log(T(208, cur, latest))
+            OpsNotify.report("update")
+            install(path: file, version: latest, silent: true)   // 一声不吭装好，装完自重启
         }
     }
 
@@ -889,7 +908,9 @@ struct Config {
     /// 网卡有 IP、网关、ping 三重判据可断健康，普通 USB 设备没有——
     /// 守护它只能是「唤醒后无条件复位一次」，风险与语义都不同，不该混为一谈
     var usbGuards: [(vid: String, pid: String, name: String)] = []
-    /// 静默更新的查询间隔（秒）。0 表示「从不」，即关闭静默更新。
+    /// 查到新版本后是否直接装上（不提示）。不勾就只下载好并留一条「已就绪」
+    var silentInstall = false
+    /// 查询间隔（秒）。0 表示「从不」，即完全不查。
     /// 档位见 Updater.intervalChoices：30 秒到 1 个月，开发调试用得上最短那档
     var updateInterval = 0
 
@@ -924,7 +945,7 @@ struct Config {
                 switch key {
                 case "WEBHOOK_PLATFORM": c.whPlatform = Int(v) ?? 0
                 case "WEBHOOK_RICH":     c.whRich = (v == "1")
-                case "SILENT_UPDATE":    break          // 旧键，已由 UPDATE_INTERVAL 取代
+                case "SILENT_UPDATE":    c.silentInstall = (v == "1")
                 default:                 c.updateInterval = max(0, Int(v) ?? 0)
                 }
                 continue
@@ -989,6 +1010,7 @@ struct Config {
         WEBHOOK_PLATFORM='\(whPlatform)'
         WEBHOOK_URL='\(whURL)'
         WEBHOOK_RICH='\(whRich ? 1 : 0)'
+        SILENT_UPDATE='\(silentInstall ? 1 : 0)'
         UPDATE_INTERVAL='\(updateInterval)'
         PRE_CMD='\(Config.escape(preCmd))'
         POST_CMD='\(Config.escape(postCmd))'
@@ -1238,12 +1260,43 @@ enum Sys {
     }
 
     /// 枚举所有已连接的 USB 设备 -> [(vid, pid, 显示名)]
-    static func usbDevices() -> [(String, String, String)] {
+    /// USB 设备的用途分类。分类决定了「能不能自动拔插」这件事：
+    /// 存储与影像设备正在读写时被拔插会丢数据，只该手工重置；
+    /// 网络与调制解调器正是本工具要守护的对象。
+    enum USBKind: Int {
+        case network = 0   // 网络、调制解调器——自动守护的正主
+        case other   = 1   // 键鼠、音视频、打印机等
+        case data    = 2   // 存储、相机——数据类，自动拔插有丢数据之虞
+        case hub     = 3   // 集线器——复位它等于把下游全部复位一遍
+
+        /// 排序权重即列表次序：正主在前，有风险的垫后
+        var rank: Int { rawValue }
+        /// 是否该在界面上标红劝阻。集线器与数据类风险不同，但都不宜自动守护：
+        /// 数据类是自身在读写，集线器是替下游背了这个风险
+        var risky: Bool { self == .data || self == .hub }
+    }
+
+    /// 由 USB 类代码判定用途。设备类为 0（按接口定）或 0xEF（复合设备）时，
+    /// 必须往下看接口类才作数——LTE 模块多是复合设备，只看设备类会漏判。
+    private static func kind(ofClass dc: Int, interfaces ic: [Int]) -> USBKind {
+        // 集线器先认出来：它下面可以挂任何东西——移动硬盘、读卡器、采集卡。
+        // 复位集线器等于把下游全部拔插一遍，风险不由它自己决定，
+        // 而由用户往上插了什么决定，所以一律不建议自动守护
+        if dc == 0x09 || ic.contains(0x09) { return .hub }
+        let all = (dc == 0x00 || dc == 0xEF) ? ic : [dc] + ic
+        // 一台设备可能兼具多种接口（如带读卡器的模块）：只要沾了存储/影像，
+        // 就按数据类对待——宁可少守护一个，不可丢一份数据
+        if all.contains(0x08) || all.contains(0x06) { return .data }
+        if all.contains(0x02) || all.contains(0x0A) { return .network }
+        return .other
+    }
+
+    static func usbDevices() -> [(String, String, String, USBKind)] {
         var iter: io_iterator_t = 0
         guard IOServiceGetMatchingServices(Sys.ioDefaultPort,
                 IOServiceMatching(kIOUSBDeviceClassName), &iter) == KERN_SUCCESS else { return [] }
         defer { IOObjectRelease(iter) }
-        var out: [(String, String, String)] = []
+        var out: [(String, String, String, USBKind)] = []
         while case let dev = IOIteratorNext(iter), dev != 0 {
             defer { IOObjectRelease(dev) }
             func prop(_ k: String) -> Any? {
@@ -1253,9 +1306,47 @@ enum Sys {
             let name = (prop("USB Product Name") as? String)
                 ?? (prop("USB Vendor Name") as? String)
                 ?? String(format: "%04x:%04x", v, p)
-            out.append((String(format: "%04x", v), String(format: "%04x", p), name))
+            let dc = prop("bDeviceClass") as? Int ?? 0
+            out.append((String(format: "%04x", v), String(format: "%04x", p), name,
+                        kind(ofClass: dc, interfaces: interfaceClasses(of: dev))))
         }
-        return out.sorted { $0.2.localizedStandardCompare($1.2) == .orderedAscending }
+        // 先按用途，再按名字：网络类在最前，数据类沉到最后
+        return out.sorted {
+            $0.3.rank != $1.3.rank ? $0.3.rank < $1.3.rank
+                                   : $0.2.localizedStandardCompare($1.2) == .orderedAscending
+        }
+    }
+
+    /// 递归取该设备下所有接口的 bInterfaceClass。接口挂在设备的子节点上，
+    /// 中间可能隔着若干层驱动节点，故子树要走一遍——但**遇到下游 USB 设备
+    /// 必须止步**：集线器的子树里挂着所有下游设备，穿过去就会把下游的接口
+    /// 算到集线器头上，把集线器误判成网卡。
+    private static func interfaceClasses(of dev: io_object_t) -> [Int] {
+        var kids: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(dev, kIOServicePlane, &kids) == KERN_SUCCESS else { return [] }
+        defer { IOObjectRelease(kids) }
+        var out: [Int] = []
+        while case let k = IOIteratorNext(kids), k != 0 {
+            defer { IOObjectRelease(k) }
+            // 另一台设备的地界，到此为止
+            if IOObjectConformsTo(k, "IOUSBHostDevice") != 0
+                || IOObjectConformsTo(k, "IOUSBDevice") != 0 { continue }
+            if let c = IORegistryEntryCreateCFProperty(k, "bInterfaceClass" as CFString, nil, 0)?
+                .takeRetainedValue() as? Int { out.append(c) }
+            // 最硬的证据：设备真的在系统里挂出了 enX 网络接口。
+            // 描述符里的类代码是厂商「声称」的，enX 是系统「认下」的——
+            // 认下的比声称的可信，凡挂得出 enX 的一律按网络类算
+            if IOObjectConformsTo(k, "IONetworkInterface") != 0,
+               let bsd = IORegistryEntryCreateCFProperty(k, "BSD Name" as CFString, nil, 0)?
+                   .takeRetainedValue() as? String,
+               bsd.hasPrefix("en"), bsd.dropFirst(2).allSatisfy(\.isNumber) {
+                out.append(0x02)
+            }
+            // 存储设备会在子树里挂出 IOMedia——这是「有数据在上面」的铁证
+            if IOObjectConformsTo(k, "IOMedia") != 0 { out.append(0x08) }
+            out += interfaceClasses(of: k)
+        }
+        return out
     }
 
     /// 接口 -> USB (VID, PID)，非 USB 返回 nil
@@ -2230,6 +2321,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 短命进程，不参与下面的单实例判定）
         // 曝光探测：诊断用，输出亮度随时间的变化曲线
         if CommandLine.arguments.contains("--exposure-probe") { CameraSnap.probeExposure() }
+        // USB 归类自检：归错类的后果是让人丢数据，必须能当场验
+        if CommandLine.arguments.contains("--usb-list") {
+            for d in Sys.usbDevices() {
+                let tag = ["网络", "其他", "数据⚠️", "集线器⚠️"][d.3.rawValue]
+                print("\(tag)\t\(d.0):\(d.1)\t\(d.2)")
+            }
+            exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--snap") {
             let tag = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : "manual"
             CameraSnap.runCLI(tag: tag)
@@ -2585,12 +2684,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         hint.isEnabled = false
         usbMenu.addItem(hint)
         usbMenu.addItem(.separator())
-        for (vid, pid, name) in Sys.usbDevices() {
-            let di = NSMenuItem(title: "\(name)  (\(vid):\(pid))",
-                                action: #selector(resetUSBDevice(_:)), keyEquivalent: "")
-            di.target = self
-            di.representedObject = "\(vid) \(pid) \(name)"
-            usbMenu.addItem(di)
+        // 这里的次序与「自动守护」界面相反：数据类设备只该手工重置，
+        // 所以在手工菜单里把它们提到最前，最顺手的位置留给最该用它的设备
+        let byKind = Dictionary(grouping: Sys.usbDevices(), by: { $0.3 })
+        for (kind, titleKey) in [(Sys.USBKind.data, 217), (.hub, 218), (.network, 215), (.other, 216)] {
+            guard let list = byKind[kind], !list.isEmpty else { continue }
+            let hdr = NSMenuItem(title: T(titleKey), action: nil, keyEquivalent: "")
+            hdr.isEnabled = false
+            usbMenu.addItem(hdr)
+            for (vid, pid, name, _) in list {
+                let di = NSMenuItem(title: "　\(name)  (\(vid):\(pid))",
+                                    action: #selector(resetUSBDevice(_:)), keyEquivalent: "")
+                di.target = self
+                di.representedObject = "\(vid) \(pid) \(name)"
+                usbMenu.addItem(di)
+            }
         }
         usbItem.submenu = usbMenu
         return usbItem
@@ -3296,20 +3404,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         a.alertStyle = .warning
 
         let W: CGFloat = 460, rh: CGFloat = 24
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 190))
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: W, height: 230))
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
+        // 分组标题也占位，高度要算进去
+        let groups: [(Sys.USBKind, Int)] = [(.network, 215), (.other, 216), (.data, 217), (.hub, 218)]
+        let shown = groups.map { g in (g, devs.filter { $0.3 == g.0 }) }.filter { !$0.1.isEmpty }
+        let rows = devs.count + shown.count
         let doc = NSView(frame: NSRect(x: 0, y: 0, width: W - 16,
-                                       height: max(190, CGFloat(devs.count) * rh + 8)))
+                                       height: max(230, CGFloat(rows) * rh + 10)))
         var boxes: [(NSButton, (String, String, String))] = []
         var y = doc.frame.height - rh
-        for d in devs {
-            let cb = NSButton(checkboxWithTitle: "\(d.2)　(\(d.0):\(d.1))", target: nil, action: nil)
-            cb.state = cfg.usbGuards.contains { $0.vid == d.0 && $0.pid == d.1 } ? .on : .off
-            cb.frame = NSRect(x: 6, y: y, width: W - 32, height: 20)
-            doc.addSubview(cb)
-            boxes.append((cb, d))
+        for ((kind, titleKey), list) in shown {
+            let hdr = NSTextField(labelWithString: T(titleKey))
+            hdr.font = NSFont.boldSystemFont(ofSize: 11)
+            // 数据类是这个界面里唯一会让人丢东西的一组，标红提醒，不与其他组同色
+            hdr.textColor = kind.risky ? .systemRed : .secondaryLabelColor
+            hdr.frame = NSRect(x: 6, y: y + 2, width: W - 32, height: 16)
+            doc.addSubview(hdr)
             y -= rh
+            for d in list {
+                let cb = NSButton(checkboxWithTitle: "\(d.2)　(\(d.0):\(d.1))", target: nil, action: nil)
+                cb.state = cfg.usbGuards.contains { $0.vid == d.0 && $0.pid == d.1 } ? .on : .off
+                cb.frame = NSRect(x: 18, y: y, width: W - 44, height: 20)
+                if kind.risky { cb.contentTintColor = .systemRed }
+                doc.addSubview(cb)
+                boxes.append((cb, (d.0, d.1, d.2)))
+                y -= rh
+            }
         }
         scroll.documentView = doc
         a.accessoryView = scroll
@@ -3602,7 +3724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         a.informativeText = I18n.shared.paragraph(T(195))
 
         let W: CGFloat = 460
-        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 150))
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 158))
 
         func label(_ s: String, _ y: CGFloat, bold: Bool = true) -> NSTextField {
             let l = NSTextField(labelWithString: s)
@@ -3614,9 +3736,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 当前版本 / 已就绪的更新
         var head = "LTE Guard \(cur)"
         if let ready = Updater.readyVersion { head += "　·　" + T(167, ready) }
-        box.addSubview(label(head, 130))
+        box.addSubview(label(head, 138))
 
-        box.addSubview(label(T(197), 102))
+        // 「自动安装」是个明确的勾选：勾了才装，不勾就只下好并提示一声
+        let auto = NSButton(checkboxWithTitle: T(197), target: nil, action: nil)
+        auto.state = cfg.silentInstall ? .on : .off
+        auto.frame = NSRect(x: 0, y: 100, width: W, height: 20)
+        box.addSubview(auto)
+
         let ivLabel = NSTextField(labelWithString: T(198))
         ivLabel.font = NSFont.systemFont(ofSize: 11)
         ivLabel.frame = NSRect(x: 0, y: 76, width: 72, height: 16)
@@ -3640,29 +3767,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         note.frame = NSRect(x: 0, y: 0, width: W, height: 60)
         box.addSubview(note)
 
+        // 各版本概要是「去看看」，不是对设置的表态，放进界面里做按钮
+        let logBtn = NSButton(frame: NSRect(x: W - 150, y: 126, width: 150, height: 24))
+        logBtn.bezelStyle = .rounded
+        logBtn.title = T(172)
+        logBtn.target = self; logBtn.action = #selector(openChangelog)
+        box.addSubview(logBtn)
+
         a.accessoryView = box
+        a.addButton(withTitle: T(17))     // 确定
         a.addButton(withTitle: T(137))    // 立即检查
-        a.addButton(withTitle: T(172))    // 各版本更新概要
         a.addButton(withTitle: T(18))     // 取消
         NSApp.activate(ignoringOtherApps: true)
         let r = a.runModal()
 
-        // 无论点哪个按钮，界面上的选择都算数
-        let picked = Updater.intervalChoices[max(0, pop.indexOfSelectedItem)].0
+        // 取消就是取消——界面上的改动一概不落地
+        guard r != .alertThirdButtonReturn else { return }
+
+        let sel = max(0, pop.indexOfSelectedItem)
+        let picked = Updater.intervalChoices[sel].0
         if picked != cfg.updateInterval {
             cfg.updateInterval = picked
-            cfg.save()
-            Sys.log(T(209, T(Updater.intervalChoices[max(0, pop.indexOfSelectedItem)].1)))
-            restartSilentTimer()
+            Sys.log(T(209, T(Updater.intervalChoices[sel].1)))
         }
+        cfg.silentInstall = auto.state == .on
+        cfg.save()
+        restartSilentTimer()
         if (daily.state == .on) != Updater.autoCheck { Updater.autoCheck = daily.state == .on }
         refreshIcon()
 
-        switch r {
-        case .alertFirstButtonReturn:  checkUpdate()
-        case .alertSecondButtonReturn: openChangelog()
-        default: break
-        }
+        if r == .alertSecondButtonReturn { checkUpdate() }
     }
 
     /// 打开各版本更新概要（先刷新一次，保证看到的是最新的）
