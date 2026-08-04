@@ -582,6 +582,19 @@ enum Updater {
 
     /// 装失败的版本：连败两次即拉黑，不再自动重试。
     /// 上一版的教训——安装失败却每 30 秒重来一次，等于每 30 秒杀自己一次
+    /// 清掉隔夜的半截下载。下载中断会留下 .part，而下一轮用的是新名字，
+    /// 旧的再无人问津，只是白占地方——两天前的就该扫走
+    static func sweepStaleParts() {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return }
+        let cutoff = Date().addingTimeInterval(-2 * 86_400)
+        for n in names where n.hasSuffix(".part") {
+            let p = dir + "/" + n
+            let mtime = (try? fm.attributesOfItem(atPath: p))?[.modificationDate] as? Date
+            if let m = mtime, m < cutoff { try? fm.removeItem(atPath: p) }
+        }
+    }
+
     static func markInstallOutcome() {
         let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         // 眼下跑着的这个版本，无论是自动装上的还是用户手动装的，
@@ -2780,6 +2793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         Sys.log(T(117, ver))
         Updater.markInstallOutcome()   // 结算上一轮安装：成了就清账，败了就记一笔
+        DispatchQueue.global(qos: .background).async { Updater.sweepStaleParts() }
         I18n.prepareUserLangDir()   // 启动即释放/刷新翻译模板（等效"安装时释放"，且升级后自动同步）
         UNUserNotificationCenter.current().delegate = self
         Notifier.requestAuth()
