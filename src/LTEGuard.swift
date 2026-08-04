@@ -471,7 +471,10 @@ enum Updater {
 
         cleanup
         sleep 1
-        open -a "$APP" 2>/dev/null || "$APP/Contents/MacOS/LTEGuard" --background &
+        # 上面 cleanup 里的 launchctl bootstrap 带 RunAtLoad，新版已经被拉起来了。
+        # 这里再 open 一次就是同时点两把火——两个菜单栏图标正是这么来的。
+        # 只有在压根没有 LaunchAgent 的情况下（没用 pkg 装过）才需要自己开
+        [ -f "$PLIST" ] || open -a "$APP" 2>/dev/null &
         """
         // 脚本走临时文件，不经 sh -c 的引号：套一层双引号的话，脚本里的
         // $EXP、$(mktemp -d) 会被外层 shell 抢先展开——上一版正是栽在这里，
@@ -498,7 +501,10 @@ enum Updater {
     static func silentCheckIfDue() {
         let cfg = Config.load()
         guard cfg.updateInterval > 0 else { return }        // 0 = 从不
-        guard Date().timeIntervalSince(lastSilentCheck) > Double(cfg.updateInterval) else { return }
+        // 留 2 秒容差：定时器在第 30.0 秒触发时，这里算出来往往是 29.99x，
+        // 严格比大小会让这一轮白白跳过——设定的 30 秒于是变成了 60 秒
+        guard Date().timeIntervalSince(lastSilentCheck)
+                > Double(cfg.updateInterval) - 2 else { return }
         lastSilentCheck = Date()
         DispatchQueue.global(qos: .background).async {
             guard let (latest, dmg, pkg) = fetchLatest() else { return }   // 连不上就静默作罢
