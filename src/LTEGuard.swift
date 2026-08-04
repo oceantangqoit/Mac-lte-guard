@@ -125,8 +125,13 @@ enum WebhookSender {
         _ = sem?.wait(timeout: .now() + 3.5)
     }
 
+    /// 待补队列的读写锁。补发与入队可能同时发生（唤醒那一刻尤其如此），
+    /// 两路各写各的会把行写串
+    private static let outboxLock = NSLock()
+
     /// 写入待补队列（时间\t消息），供网络恢复后补发
     static func enqueue(_ text: String) {
+        outboxLock.lock(); defer { outboxLock.unlock() }
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let line = "\(f.string(from: Date()))\t\(text.replacingOccurrences(of: "\n", with: " "))\n"
         if let h = FileHandle(forWritingAtPath: outboxPath) {
@@ -236,9 +241,19 @@ enum WebhookSender {
 
     /// 网络恢复后补发队列中的消息，逐条注明原发送时间；仍失败的保留待下次
     static func flushOutbox() {
-        guard let text = try? String(contentsOfFile: outboxPath, encoding: .utf8),
+        // 先原子改名，再读那个改好名的。若照旧「读全文→删文件」，
+        // 这中间新入队的消息会被一并删掉——补发反倒成了丢消息。
+        // 改名之后，新消息进的是新文件，两边互不相干
+        let stash = outboxPath + ".flushing"
+        outboxLock.lock()
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: outboxPath) else { outboxLock.unlock(); return }
+        try? fm.removeItem(atPath: stash)
+        try? fm.moveItem(atPath: outboxPath, toPath: stash)
+        outboxLock.unlock()
+        defer { try? fm.removeItem(atPath: stash) }
+        guard let text = try? String(contentsOfFile: stash, encoding: .utf8),
               !text.isEmpty else { return }
-        try? FileManager.default.removeItem(atPath: outboxPath)
         for line in text.split(separator: "\n") {
             let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
@@ -714,7 +729,20 @@ enum CameraSnap {
 
     /// 本次修复周期实际拍到的照片（tag → 路径）。webhook 图文只认这里的路径，
     /// 拍不到就发纯文本——绝不退而求其次去找"最近的旧照"
-    static var lastShots: [String: String] = [:]
+    /// 本轮拍到的照片。写入发生在 AVFoundation 的回调队列，读取与清空
+    /// 发生在 Healer 的队列——Swift 字典不是线程安全的，并发读写会崩，
+    /// 而且只在唤醒那一刻偶发，最难查。用锁圈起来，别图省事
+    private static let shotsLock = NSLock()
+    private static var _lastShots: [String: String] = [:]
+    static var lastShots: [String: String] {
+        get { shotsLock.lock(); defer { shotsLock.unlock() }; return _lastShots }
+    }
+    static func recordShot(_ tag: String, _ path: String) {
+        shotsLock.lock(); _lastShots[tag] = path; shotsLock.unlock()
+    }
+    static func clearShots() {
+        shotsLock.lock(); _lastShots.removeAll(); shotsLock.unlock()
+    }
 
     /// 该有照片却没拍到时提醒用户（多为升级后未重新授权）；每小时最多一次，不刷屏
     private static var lastWarn = Date.distantPast
@@ -786,7 +814,7 @@ enum CameraSnap {
                     completion(nil)
                 }
             }
-            snapDelegateKeeper = delegate   // 持有到回调完成
+            keepSnapDelegate(delegate)      // 持有到回调完成
             output.capturePhoto(with: AVCapturePhotoSettings(), delegate: delegate)
         }
     }
@@ -925,14 +953,23 @@ extension CameraSnap {
     }
 }
 
-private var snapDelegateKeeper: AnyObject?
+/// 拍照代理要活到回调完成。唤醒补拍与解锁补拍可能前后脚撞上，
+/// 单个变量会被后来者覆盖，前一个代理提前释放，那张照片就丢了
+private let snapKeeperLock = NSLock()
+private var snapDelegateKeepers: [ObjectIdentifier: AnyObject] = [:]
+private func keepSnapDelegate(_ d: AnyObject) {
+    snapKeeperLock.lock(); snapDelegateKeepers[ObjectIdentifier(d)] = d; snapKeeperLock.unlock()
+}
+private func releaseSnapDelegate(_ d: AnyObject) {
+    snapKeeperLock.lock(); snapDelegateKeepers[ObjectIdentifier(d)] = nil; snapKeeperLock.unlock()
+}
 
 private final class SnapDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     private let done: (Data?) -> Void
     init(_ done: @escaping (Data?) -> Void) { self.done = done }
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         done(error == nil ? photo.fileDataRepresentation() : nil)
-        snapDelegateKeeper = nil
+        releaseSnapDelegate(self)
     }
 }
 
@@ -1267,7 +1304,7 @@ enum Sys {
                 let sem = DispatchSemaphore(value: 0)
                 DispatchQueue.main.async {
                     CameraSnap.take(tag: tag) { p in
-                        if let p = p { CameraSnap.lastShots[tag] = p }
+                        if let p = p { CameraSnap.recordShot(tag, p) }
                         sem.signal()
                     }
                 }
@@ -1275,7 +1312,7 @@ enum Sys {
             } else {
                 // 断联阶段：拍照与打开网络面板并行，互不拖累
                 DispatchQueue.main.async {
-                    CameraSnap.take(tag: tag) { p in if let p = p { CameraSnap.lastShots[tag] = p } }
+                    CameraSnap.take(tag: tag) { p in if let p = p { CameraSnap.recordShot(tag, p) } }
                 }
             }
         }
@@ -1790,7 +1827,7 @@ func T(_ id: Int, _ args: CVarArg...) -> String {
 /// 健康状态缓存：菜单渲染读缓存，实际探测在后台线程
 final class HealthCache {
     static let shared = HealthCache()
-    private var map: [String: Bool] = [:]   // 接口 → 健康（主线程访问）
+    private var map: [String: Bool] = [:]   // 接口 → 健康（只在主线程读写，由 refresh 保证）
     private var lastCheck = Date.distantPast
 
     /// 单接口状态（菜单逐对象显示用）
@@ -1803,6 +1840,13 @@ final class HealthCache {
     }
 
     func refresh(_ devs: [String]) {
+        // 入口统一切到主线程。map 与 lastCheck 都只在主线程读写，
+        // 这个约定原本只写在注释里——而 launchCheck、heal 都在后台调它。
+        // 让入口自己保证，调用者就不必各自小心，也不会有人再破例
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.refresh(devs) }
+            return
+        }
         lastCheck = Date()
         DispatchQueue.global(qos: .utility).async {
             let results = devs.map { ($0, Sys.interfaceHealthy($0)) }
@@ -1910,7 +1954,7 @@ final class Healer {
             guard !due.isEmpty else { return }
             due.forEach { self.lastHeal[$0.dev] = now }
 
-            CameraSnap.lastShots.removeAll()   // 本轮从零开始，杜绝沿用上次的照片
+            CameraSnap.clearShots()            // 本轮从零开始，杜绝沿用上次的照片
 
             // 被守护的 USB 设备：唤醒后无条件复位一次。它们没有通断可验，
             // 只能这么办——所以勾选时才要当面把读写中断的风险讲清并留档
