@@ -140,18 +140,27 @@ LTE Guard 是一个常驻在菜单栏里的守护工具，监听系统唤醒事�
 
 ## 安装
 
-**方式一：下载安装包**（[Releases](../../releases)）
+**推荐：用命令行装第一次，往后交给自动更新**
 
-- `LTEGuard-x.y.z.dmg` — 拖进 Applications
-- `LTEGuard-x.y.z.pkg` — 双击安装，自动配置开机启动
+复制这两行到终端，一次装好：
 
-首次打开若提示"无法验证开发者"（未签名应用的正常提示）：**右键点 App → 打开 → 再点打开**，或终端执行
+```bash
+curl -L -o /tmp/LTEGuard.pkg https://github.com/oceantangqoit/Mac-lte-guard/releases/latest/download/LTEGuard.pkg && open /tmp/LTEGuard.pkg
+```
+
+这个地址永远指向最新版（每次发布都会附一份不带版本号的副本）。
+
+**为什么绕开浏览器下载？** 因为本项目未做签名与公证（那需要每年 99 美元的 Apple 开发者账号）。浏览器下载的文件会被打上 `com.apple.quarantine` 隔离标记，双击时 macOS 会说"无法验证是否包含恶意软件"，得右键打开或去系统设置里放行。`curl` 下载不打这个标记，装起来一路顺畅——**这不是绕过安全检查，只是没有让浏览器给文件贴上那张标签**。你若更放心，装之前可以先核对文件的 SHA-256，或者干脆用下面的方式自己构建。
+
+**装完这一次，以后不用再管。** 菜单里打开「更新…」，勾上「静默更新」并选一个查询间隔，程序此后自己查、自己下、自己装，装完自动重启，全程不打扰你。它下载用的也是 `curl`，同样不会遇到上面那个提示。
+
+**如果你更喜欢点着装**：到 [Releases](../../releases) 下载 `LTEGuard-x.y.z.pkg`（双击安装，自动配置开机启动）或 `.dmg`（拖进「应用程序」）。首次打开遇到"无法验证开发者"时，**右键点 App → 打开 → 再点打开**，或终端执行：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LTEGuard.app
 ```
 
-**方式二：自己构建**（需 Xcode 命令行工具）
+**方式三：自己构建**（需 Xcode 命令行工具）
 
 ```bash
 git clone https://github.com/oceantangqoit/Mac-lte-guard.git

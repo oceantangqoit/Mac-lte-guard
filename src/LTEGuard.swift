@@ -2524,14 +2524,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             CameraSnap.runCLI(tag: tag)
         }
 
-        // 单实例保护：覆盖安装时 LaunchAgent 保活重启与安装器/手动打开会各拉起
-        // 一个进程，菜单栏出现两个图标。后启动者（PID 更大）发现先来者健在就
-        // 静默退出；同时启动的竞态也因 PID 比较只留一个。
-        let bid = Bundle.main.bundleIdentifier ?? "com.oceantang.lteguard"
-        let own = ProcessInfo.processInfo.processIdentifier
-        if NSRunningApplication.runningApplications(withBundleIdentifier: bid)
-            .contains(where: { $0.processIdentifier != own && $0.processIdentifier < own && !$0.isTerminated }) {
-            exit(0)
+        // 单实例保护：更新装完那一刻，LaunchAgent 的保活与安装脚本可能各拉起
+        // 一个进程，菜单栏就出现两个图标。
+        //
+        // 这里用文件锁把关，而不是查 NSRunningApplication——后者依赖
+        // LaunchServices 注册，两个进程同时起步时，后者可能压根还看不见前者，
+        // 于是双双通过检查。文件锁是内核层的原子操作，没有这个窗口。
+        // 锁不显式释放：进程一退出，内核自动收回。
+        try? FileManager.default.createDirectory(atPath: I18n.appSupportDir,
+                                                 withIntermediateDirectories: true)
+        let lockPath = I18n.appSupportDir + "/.instance.lock"
+        let lockFD = open(lockPath, O_CREAT | O_RDWR, 0o644)
+        if lockFD >= 0, flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
+            exit(0)                     // 锁在别人手里，说明已有一个在跑
+        }
+        // 锁不上（磁盘异常等）就退回旧办法，至少还有一道
+        if lockFD < 0 {
+            let bid = Bundle.main.bundleIdentifier ?? "com.oceantang.lteguard"
+            let own = ProcessInfo.processInfo.processIdentifier
+            if NSRunningApplication.runningApplications(withBundleIdentifier: bid)
+                .contains(where: { $0.processIdentifier != own
+                                   && $0.processIdentifier < own && !$0.isTerminated }) {
+                exit(0)
+            }
         }
 
         let app = NSApplication.shared

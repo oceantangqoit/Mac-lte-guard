@@ -26,6 +26,10 @@ jobs:
           git log -1 --pretty=format:'%s%n%n%b' "$GITHUB_REF_NAME" > NOTES.md
           printf '\n\n---\n\nFull changelog: %s/compare/...%s\n' \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> NOTES.md
+      # 再放一份不带版本号的副本：README 里那条一行安装命令要能长期有效，
+      # 就得有个固定的下载地址（releases/latest/download/LTEGuard.pkg）
+      - name: Add version-less copy
+        run: cp dist/LTEGuard-*.pkg dist/LTEGuard.pkg
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
