@@ -278,12 +278,15 @@ enum OpsNotify {
     }
 
     /// 已勾选才发；带操作名、机器名、使用者与时间
-    static func report(_ op: String) {
+    /// detail 是「改成了什么」。通报一个动作而不说结果，收到的人还得自己去查，
+    /// 值守消息就该一眼看明白
+    static func report(_ op: String, _ detail: String = "") {
         guard Config.load().notifyOps.contains(op) else { return }
         let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
         let host = Host.current().localizedName ?? ""
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let text = T(177, name(op), "\(who)@\(host) · \(f.string(from: Date()))")
+        let subject = detail.isEmpty ? name(op) : name(op) + "：" + detail
+        let text = T(177, subject, "\(who)@\(host) · \(f.string(from: Date()))")
         Sys.log(text)
         WebhookSender.send(text)
     }
@@ -1975,10 +1978,15 @@ final class Healer {
     private func resetGuardedUSB() {
         let guards = Config.load().usbGuards
         guard !guards.isEmpty else { return }
+        var done: [String] = []
         for g in guards {
             let out = Sys.run("'\(Sys.usbresetPath)' \(g.vid) \(g.pid) 2>&1")
-            Sys.log(out.contains("OK") ? T(214, g.name) : T(113, out))
+            let ok = out.contains("OK")
+            Sys.log(ok ? T(214, g.name) : T(113, out))
+            if ok { done.append(g.name) }
         }
+        // 一次唤醒汇总成一条，逐台发会把通报刷成噪音
+        if !done.isEmpty { OpsNotify.report("usb", done.joined(separator: "、")) }
     }
 
     func checkAndHeal(reason: String) {
@@ -3246,7 +3254,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// 治愈对象：多选。每个勾选的网卡都被独立守护、独立修复。
     @objc func pickTarget() {
-        OpsNotify.report("target")
         let services = Sys.networkServices()
         guard !services.isEmpty else { notify(T(23)); return }
 
@@ -3288,6 +3295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cfg.targets = picked
         cfg.save()
         let names = picked.map(\.display).joined(separator: ", ")
+        OpsNotify.report("target", names.isEmpty ? "—" : names)
         Sys.log(T(109, names))
         notify(T(109, names))
         refreshIcon()
@@ -3601,9 +3609,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
         }
+        let oldPre = cfg.preCmd, oldPost = cfg.postCmd
         cfg.preCmd = clean(editor.currentPre)
         cfg.postCmd = clean(editor.currentPost)
         cfg.save()
+        // 改了才通报。命令正文不入通报——那是可执行内容，
+        // 发出去等于把「唤醒后会跑什么」原样告诉收信一方
+        if cfg.preCmd != oldPre || cfg.postCmd != oldPost {
+            let n = (cfg.preCmd + "\n" + cfg.postCmd)
+                .split(separator: "\n").filter { !$0.isEmpty }.count
+            OpsNotify.report("editcmd", T(230, "\(n)"))
+        }
         notify(T(55))
     }
 
@@ -3843,7 +3859,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// 对任意 USB 设备执行软件拔插。用于音频接口、摄像头、外置硬盘、扩展坞等
     /// 同样会在睡眠唤醒后假死、平时只能物理拔插的设备。
-    @objc func pickUSBGuardsGated() { Auth.gate("usb") { self.pickUSBGuards() } }
+    // 打开界面本身不通报——通报留给「确实改了」那一刻，见 pickUSBGuards
+    @objc func pickUSBGuardsGated() { Auth.gate { self.pickUSBGuards() } }
 
     /// 「选择要守护的 USB 设备」：勾选后每次唤醒自动做一次软件拔插。
     /// 与网卡守护分设两处，正因为判据不同——网卡能验通断，普通 USB 设备
@@ -3917,6 +3934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cfg.usbGuards = picked
             cfg.save()
             let names = picked.isEmpty ? "—" : picked.map(\.name).joined(separator: "、")
+            OpsNotify.report("usb", names)
             Sys.log(T(212, names))
             self.notify(T(212, names))
             self.refreshIcon()
@@ -3957,7 +3975,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             DispatchQueue.global(qos: .userInitiated).async {
                 Sys.log(T(99, name, "\(vid):\(pid)"))
                 let out = Sys.run("'\(Sys.usbresetPath)' \(vid) \(pid) 2>&1")
-                Sys.log(out.contains("OK") ? T(112, "\(vid):\(pid)") : T(113, out))
+                let ok = out.contains("OK")
+                Sys.log(ok ? T(112, "\(vid):\(pid)") : T(113, out))
+                // 走的是签约路径而非 Auth.gate，通报得自己补——
+                // 真拔插了却不吭声，比看一眼就通报要糟得多
+                if ok { OpsNotify.report("usb", "\(name) (\(vid):\(pid))") }
                 Auth.onMain { self?.notify(T(79, name)) }
             }
         }
@@ -4394,11 +4416,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.activate(ignoringOtherApps: true)
         guard a.runModal() == .alertFirstButtonReturn else { return }
 
+        let oldURL = cfg.whURL, oldOps = cfg.notifyOps
         cfg.whPlatform = pop.indexOfSelectedItem
         cfg.whURL = field.stringValue.trimmingCharacters(in: .whitespaces)
         cfg.whRich = (rich.indexOfSelectedItem == 1)
         cfg.notifyOps = Set(boxes.filter { $0.0.state == .on }.map { $0.1 })
         cfg.save()
+        // 改了才通报，且说明改的是什么。地址本身绝不入通报——
+        // 那是凭据，发出去等于把钥匙一并寄了
+        if cfg.whURL != oldURL || cfg.notifyOps != oldOps {
+            var what: [String] = []
+            if cfg.whURL != oldURL { what.append(T(229)) }
+            if cfg.notifyOps != oldOps { what.append(T(230, "\(cfg.notifyOps.count)")) }
+            OpsNotify.report("notify", what.joined(separator: "、"))
+        }
         notify(T(55))
     }
 
@@ -4466,7 +4497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     // ── 敏感操作门禁（受「敏感操作需要验证」开关控制）──
-    @objc func editPostCmdGated()    { Auth.gate("editcmd") { [weak self] in self?.editPostCmd() } }
+    @objc func editPostCmdGated()    { Auth.gate { [weak self] in self?.editPostCmd() } }
     @objc func quitGated() {
         // 开着「永不退出」时点退出，程序会消失一下又被拉回来。
         // 那是设定如此，但不当面说一声，看着就像退不掉的故障
@@ -4497,7 +4528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     @objc func openConfigFolderGated() { Auth.gate("config") { [weak self] in self?.openConfigFolder() } }
     @objc func openLogGated()        { Auth.gate("log") { [weak self] in self?.openLog() } }
-    @objc func editNotifyGated()     { Auth.gate("notify") { [weak self] in self?.editNotify() } }
+    @objc func editNotifyGated()     { Auth.gate { [weak self] in self?.editNotify() } }
 
     /// 开关本身也要防绕过：开启随手，关闭需验证
     /// 永不退出：开着它，连用户自己点退出也会被立刻拉起来。
