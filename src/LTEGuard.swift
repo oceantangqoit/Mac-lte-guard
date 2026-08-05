@@ -109,7 +109,20 @@ enum WebhookSender {
     }
 
     /// 发送文本。失败且 queueOnFail 时写入待补队列。sync=true 同步等待（≤timeout）
-    static func send(_ text: String, sync: Bool = false, queueOnFail: Bool = true) {
+    /// 统一落款：收信一方可能管着好几台 Mac，少了这一行就分不清谁在说话。
+    /// 加在发送入口，一处生效——日后新增的消息也不会漏掉
+    static func stamp(_ text: String) -> String {
+        let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+        let host = Host.current().localizedName ?? ""
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return text + "\n" + T(233, "\(who)@\(host)", f.string(from: Date()))
+    }
+
+    /// stamped：文本是否已带落款。补发走这条路——队列里存的就是当初盖过戳的
+    /// 原文，重盖会把补发时间冒充成事发时间。靠正文里有没有破折号去猜并不可靠
+    static func send(_ raw: String, sync: Bool = false, queueOnFail: Bool = true,
+                     stamped: Bool = false) {
+        let text = stamped ? raw : stamp(raw)
         guard let (p, u) = configured(), let req = request(platform: p, url: u, text: text) else { return }
         let sem = sync ? DispatchSemaphore(value: 0) : nil
         URLSession.shared.dataTask(with: req) { _, resp, err in
@@ -143,7 +156,8 @@ enum WebhookSender {
 
     /// 发送文本＋照片。照片为空或平台不支持图文时退化为纯文本。
     /// 全程 URLSession，不经 shell——成败可判、可补发。
-    static func sendRich(_ text: String, images: [String]) {
+    static func sendRich(_ rawText: String, images: [String]) {
+        let text = stamp(rawText)
         guard let (p, u) = configured() else { return }
         let imgs = images.filter { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }
         guard !imgs.isEmpty, AppDelegate.webhookRichCapable.contains(p) else { send(text); return }
@@ -257,7 +271,10 @@ enum WebhookSender {
         for line in text.split(separator: "\n") {
             let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
-            send("[\(T(151, parts[0]))] \(parts[1])", sync: false, queueOnFail: true)
+            // 队列里存的是当初盖过戳的原文，不能重盖——否则补发时间会
+            // 冒充成事发时间，值守记录的可信度就没了
+            send("[\(T(151, parts[0]))] \(parts[1])", sync: false,
+                 queueOnFail: true, stamped: true)
         }
     }
 }
@@ -270,7 +287,7 @@ enum OpsNotify {
     static var catalog: [(String, String)] {
         [("editcmd", T(53)), ("notify", T(184)), ("target", T(10)), ("heal", T(11)), ("log", T(12)),
          ("config", T(68)), ("launch", T(30)), ("usb", T(75)),
-         ("update", T(190)), ("quit", T(14))]
+         ("update", T(190)), ("quit", T(14)), ("autoheal", T(234))]
     }
 
     static func name(_ op: String) -> String {
@@ -286,8 +303,8 @@ enum OpsNotify {
         let host = Host.current().localizedName ?? ""
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let subject = detail.isEmpty ? name(op) : name(op) + "：" + detail
-        let text = T(177, subject, "\(who)@\(host) · \(f.string(from: Date()))")
-        Sys.log(text)
+        let text = T(231, subject)
+        Sys.log(T(177, subject, "\(who)@\(host) · \(f.string(from: Date()))"))
         WebhookSender.send(text)
     }
 }
@@ -470,7 +487,7 @@ enum Updater {
             let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
             let host = Host.current().localizedName ?? ""
             let cur = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-            WebhookSender.send(T(191, cur, version, "\(who)@\(host)"), sync: true)
+            WebhookSender.send(T(232, cur, version), sync: true)
         }
 
         Sys.log(T(166, version))
@@ -2060,7 +2077,9 @@ final class Healer {
                     let shots = cfg.whRich
                         ? [CameraSnap.lastShots["wake"] ?? "", CameraSnap.lastShots["restored"] ?? ""]
                         : []
-                    WebhookSender.sendRich("LTE Guard: \(info)", images: shots)
+                    if cfg.notifyOps.contains("autoheal") {
+                        WebhookSender.sendRich(T(235, info), images: shots)
+                    }
                     WebhookSender.flushOutbox()   // 网络已恢复：补发滞留消息
                 }
             }
@@ -2903,6 +2922,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             options: [.background, .suddenTerminationDisabled],
             reason: "LTE Guard: 定时检查网卡与更新")
         restartSilentTimer()   // 静默更新按用户设定的间隔自己走
+        // 「唤醒后自动修复」此前一直在发详尽推送，只是不受勾选控制。
+        // 把它加进通报清单是为了给用户开关，不是为了悄悄关掉——
+        // 老配置一律补上这一项，行为保持原样
+        if !UserDefaults.standard.bool(forKey: "autohealOptMigrated") {
+            UserDefaults.standard.set(true, forKey: "autohealOptMigrated")
+            var c = Config.load()
+            if !c.whURL.isEmpty, !c.notifyOps.contains("autoheal") {
+                c.notifyOps.insert("autoheal"); c.save()
+            }
+        }
         let daily = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .background))
         daily.schedule(deadline: .now() + 21_600, repeating: 21_600, leeway: .seconds(300))
         daily.setEventHandler { Updater.dailyCheckIfDue() }
