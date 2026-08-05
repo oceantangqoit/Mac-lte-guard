@@ -2514,6 +2514,21 @@ private let kMsgPoweredOn: UInt32 = 0xE000_0300   // kIOMessageSystemHasPoweredO
 /// sys_iokit | sub_iokit_powermanagement | 0x100；messageArgument bit0 = 已合盖）
 private let kMsgClamshellChange: UInt32 = 0xE001_8100
 
+/// 盖子此刻是不是合着的——直接问 IOPMrootDomain，不靠攒事件。
+/// 原先只监听 clamshell 变化消息、把状态记在变量里，可合盖的一瞬间
+/// 系统就开始睡眠，那条私有消息未必赶得及在睡眠通知之前投递到；
+/// 没赶上，状态就一直是「不知道」，于是每次都报成「未合盖」。
+/// 台式机没有盖子，读不到这个属性，返回 false 正合适
+func clamshellClosedNow() -> Bool {
+    let root = IOServiceGetMatchingService(Sys.ioDefaultPort,
+                                           IOServiceMatching("IOPMrootDomain"))
+    guard root != 0 else { return false }
+    defer { IOObjectRelease(root) }
+    let v = IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString,
+                                            nil, 0)?.takeRetainedValue()
+    return (v as? Bool) ?? false
+}
+
 final class WakeWatcher {
     private var rootPort: io_connect_t = 0
     private var notifier: io_object_t = 0
@@ -2533,7 +2548,9 @@ final class WakeWatcher {
                     // 睡眠通报：此刻网络还活着，同步抢发（≤3.5s，配置了 webhook 才发；
                     // 失败会入待补队列，唤醒恢复后自动补发并注明原时间）
                     if WebhookSender.configured() != nil {
-                        let lid = me.lastClamshell == true ? T(142) : T(150)
+                        // 以此刻的实际状态为准；事件累积只作旁证
+                        let lid = (clamshellClosedNow() || me.lastClamshell == true)
+                            ? T(142) : T(150)
                         WebhookSender.send(T(147, lid), sync: true)
                     }
                 }
@@ -2626,6 +2643,12 @@ func runSelfTest() -> Never {
     let long = String(repeating: "这是一句很长的说明文字。", count: 4)
     checkTrue("提示折行生效", UI.tip(long).contains("\n"))
     checkTrue("短提示不动它", !UI.tip("很短").contains("\n"))
+
+    // 合盖判定：与 ioreg 的读数对照。这项曾经错得很隐蔽——靠攒事件记状态，
+    // 事件没来就一直是「不知道」，于是每次都报「未合盖」，日志看着还挺正常
+    let byIOReg = Sys.run("ioreg -r -k AppleClamshellState -d 1 2>/dev/null "
+                          + "| grep -c '\"AppleClamshellState\" = Yes'") == "1"
+    checkTrue("合盖状态与 ioreg 一致", clamshellClosedNow() == byIOReg)
 
     // 语言包的完整性不在这里测：那要碰 I18n 的私有表，为测试破封装不划算。
     // 它由仓库里的校验脚本覆盖（72 语言 × 全部在用键，含占位符比对）
