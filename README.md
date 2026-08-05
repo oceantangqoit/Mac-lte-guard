@@ -142,7 +142,22 @@ LTE Guard 是一个常驻在菜单栏里的守护工具，监听系统唤醒事�
 
 **推荐：用命令行装第一次，往后交给自动更新**
 
-复制这两行到终端，一次装好：
+复制下面整段到终端。它不经过安装器界面，也不需要管理员密码：
+
+```bash
+set -e
+U=$(curl -fsSL https://api.github.com/repos/oceantangqoit/Mac-lte-guard/releases/latest | grep -o 'https://[^"]*LTEGuard-[0-9.]*\.pkg' | head -1)
+curl -fsSL -o /tmp/lteguard.pkg "$U"
+rm -rf /tmp/lteguard-x && pkgutil --expand-full /tmp/lteguard.pkg /tmp/lteguard-x
+pkill -x LTEGuard 2>/dev/null || true
+rm -rf /Applications/LTEGuard.app
+cp -R /tmp/lteguard-x/component.pkg/Payload/Applications/LTEGuard.app /Applications/
+sh /tmp/lteguard-x/component.pkg/Scripts/postinstall
+```
+
+**为什么这样最稳。** `pkgutil` 只是解包工具，不做签名校验；`cp` 进「应用程序」也不经过 Gatekeeper。整个过程与你这台机器的历史记录无关——在任何一台 Mac 上表现都一样。这正是本 App 自动更新走的同一条路，所以第一次装成功之后，往后每一次更新都同样可靠。
+
+想看着安装器一步步走也可以，代价是多经过一道 Gatekeeper：
 
 ```bash
 curl -L -o /tmp/LTEGuard.pkg https://github.com/oceantangqoit/Mac-lte-guard/releases/latest/download/LTEGuard.pkg && open /tmp/LTEGuard.pkg
