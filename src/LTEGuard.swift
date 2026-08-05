@@ -287,7 +287,7 @@ enum OpsNotify {
     static var catalog: [(String, String)] {
         [("editcmd", T(53)), ("notify", T(184)), ("target", T(10)), ("heal", T(11)), ("log", T(12)),
          ("config", T(68)), ("launch", T(30)), ("usb", T(75)),
-         ("update", T(190)), ("quit", T(14)), ("autoheal", T(234))]
+         ("update", T(190)), ("quit", T(14)), ("autoheal", T(234)), ("settings", T(238))]
     }
 
     static func name(_ op: String) -> String {
@@ -297,14 +297,14 @@ enum OpsNotify {
     /// 已勾选才发；带操作名、机器名、使用者与时间
     /// detail 是「改成了什么」。通报一个动作而不说结果，收到的人还得自己去查，
     /// 值守消息就该一眼看明白
-    static func report(_ op: String, _ detail: String = "") {
+    static func report(_ op: String, _ detail: String = "", alsoLog: Bool = true) {
         guard Config.load().notifyOps.contains(op) else { return }
         let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
         let host = Host.current().localizedName ?? ""
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let subject = detail.isEmpty ? name(op) : name(op) + "：" + detail
         let text = T(231, subject)
-        Sys.log(T(177, subject, "\(who)@\(host) · \(f.string(from: Date()))"))
+        if alsoLog { Sys.log(T(177, subject, "\(who)@\(host) · \(f.string(from: Date()))")) }
         WebhookSender.send(text)
     }
 }
@@ -700,6 +700,22 @@ enum Updater {
             }
         }
     }
+}
+
+/// 设置变更的统一去处。两条规矩：
+/// 一、**以保存为准**——点开界面看看又取消，不该留下任何痕迹；
+/// 二、**只记真变了的**——否则每按一次「确定」都刷一条，日志就成了噪音。
+/// 日志无条件写（改了什么总该查得到），推送按「操作通报」的勾选走
+enum SettingsAudit {
+    static func record(_ scope: String, _ changes: [(String, String, String)]) {
+        let real = changes.filter { $0.1 != $0.2 }
+        guard !real.isEmpty else { return }
+        let detail = real.map { T(237, $0.0, $0.1, $0.2) }.joined(separator: "；")
+        Sys.log(T(236, scope, detail))
+        OpsNotify.report("settings", "\(scope) — \(detail)", alsoLog: false)
+    }
+    /// 开关类的值统一措辞，免得各处各写各的
+    static func onOff(_ v: Bool) -> String { v ? T(239) : T(240) }
 }
 
 // MARK: - 签约存档
@@ -1720,21 +1736,31 @@ final class I18n {
         if want.contains("-"), let base = want.split(separator: "-").first { chain.append(String(base)) }
         chain.append("en")
 
-        for cand in chain {
-            for dir in I18n.searchDirs {
+        // 从兜底到首选逐层叠加，后加载的覆盖先加载的。
+        // 关键在于：用户自己导出改过的语言文件往往停留在导出那天的版本，
+        // 后来新增的键它没有。若像从前那样「找到第一个文件就用」，
+        // 那些键就只能在界面上露出 #236 这样的编号。分层叠加之后，
+        // 缺的键由内置的同语言文件补，再不济由英文补，绝不会露编号
+        table = [:]
+        var hit: String? = nil
+        for cand in chain.reversed() {                     // en → 主语言 → 完整代码
+            for dir in I18n.searchDirs.reversed() {        // 内置 → 旧路径 → 用户目录
                 let path = "\(dir)/\(cand).ini"
                 if let t = try? String(contentsOfFile: path, encoding: .utf8) {
-                    parse(t); code = cand
-                    if preferred != nil { UserDefaults.standard.set(cand, forKey: "lang") }
-                    return
+                    parse(t)
+                    hit = cand
                 }
             }
         }
-        table = [:]; code = want
+        code = hit ?? want
+        if preferred != nil, hit != nil {
+            UserDefaults.standard.set(code, forKey: "lang")
+        }
     }
 
+    /// 叠加解析：只往表里添，不清空。分层加载靠它——
+    /// 后加载的层覆盖先加载的同号键，缺的键则保留下层的值
     private func parse(_ text: String) {
-        table.removeAll()
         var inStrings = false
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -2372,6 +2398,15 @@ final class PostCmdEditor: NSObject, NSTextViewDelegate {
 /// 菜单栏图标显示模式
 enum IconMode: Int {
     case always = 0, problemOnly = 1, hidden = 2
+    /// 供日志与通报称呼这三档，用界面上原话，免得日志里出现只有开发者
+    /// 看得懂的代号
+    var title: String {
+        switch self {
+        case .always:      return T(49)
+        case .problemOnly: return T(50)
+        case .hidden:      return T(51)
+        }
+    }
     static var current: IconMode {
         get { IconMode(rawValue: UserDefaults.standard.integer(forKey: "iconMode")) ?? .always }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "iconMode") }
@@ -2761,6 +2796,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 短命进程，不参与下面的单实例判定）
         // 曝光探测：诊断用，输出亮度随时间的变化曲线
         if CommandLine.arguments.contains("--exposure-probe") { CameraSnap.probeExposure() }
+        // 取某个语言的某几条文案。排查「用户自己的语言文件缺了新键」
+        // 这类问题时用得上：分层加载是否真的补上了，一看便知
+        if let i = CommandLine.arguments.firstIndex(of: "--key") {
+            let rest = CommandLine.arguments.dropFirst(i + 1)
+            let lang = rest.first ?? "en"
+            I18n.shared.load(preferred: lang)
+            for a in rest.dropFirst() {
+                guard let k = Int(a) else { continue }
+                print("\(k)= \(T(k))")
+            }
+            exit(0)
+        }
         // 文言折行自检：整段倒置与逐行倒排肉眼难分，必须能打出来看
         if CommandLine.arguments.contains("--lzh-demo") {
             I18n.shared.load(preferred: "lzh")
@@ -3357,8 +3404,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let code = sender.representedObject as? String else { return }
         let wasRTL = UserDefaults.standard.bool(forKey: "NSForceRightToLeftWritingDirection")
         let nowRTL = I18n.isRTL(code)
+        let was = I18n.shared.code
         I18n.shared.load(preferred: code)
-        Sys.log(T(116, code))
+        SettingsAudit.record(T(13), [(T(13), was, code)])
         refreshIcon()
 
         // 菜单的展开方向、箭头朝向由「应用级」书写方向决定，单个菜单的
@@ -3402,6 +3450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.activate(ignoringOtherApps: true)
             guard a.runModal() == .alertFirstButtonReturn else { return }
         }
+        SettingsAudit.record(T(48), [(T(48), IconMode.current.title, mode.title)])
         IconMode.current = mode
         refreshIcon()
     }
@@ -4355,10 +4404,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let sel = max(0, pop.indexOfSelectedItem)
         let picked = Updater.intervalChoices[sel].0
-        if picked != cfg.updateInterval {
-            cfg.updateInterval = picked
-            Sys.log(T(209, T(Updater.intervalChoices[sel].1)))
-        }
+        let oldIvName = T(Updater.intervalChoices
+            .firstIndex { $0.0 == cfg.updateInterval }.map { Updater.intervalChoices[$0].1 } ?? 199)
+        SettingsAudit.record(T(180), [
+            (T(198), oldIvName, T(Updater.intervalChoices[sel].1)),
+            (T(197), SettingsAudit.onOff(cfg.silentInstall), SettingsAudit.onOff(auto.state == .on)),
+            (T(169), SettingsAudit.onOff(Updater.autoCheck), SettingsAudit.onOff(daily.state == .on)),
+        ])
+        cfg.updateInterval = picked
         cfg.silentInstall = auto.state == .on
         cfg.save()
         restartSilentTimer()
@@ -4469,6 +4522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard a.runModal() == .alertFirstButtonReturn else { return }
 
         let oldURL = cfg.whURL, oldOps = cfg.notifyOps
+        let oldPlatform = cfg.whPlatform, oldRich = cfg.whRich
         cfg.whPlatform = pop.indexOfSelectedItem
         cfg.whURL = field.stringValue.trimmingCharacters(in: .whitespaces)
         cfg.whRich = (rich.indexOfSelectedItem == 1)
@@ -4482,6 +4536,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if cfg.notifyOps != oldOps { what.append(T(230, "\(cfg.notifyOps.count)")) }
             OpsNotify.report("notify", what.joined(separator: "、"))
         }
+        // 平台与图文这类不涉密的选择，走设置审计留痕（地址仍旧不入）
+        SettingsAudit.record(T(184), [
+            (T(92), AppDelegate.webhookPlatforms[min(oldPlatform, AppDelegate.webhookPlatforms.count - 1)],
+             AppDelegate.webhookPlatforms[min(cfg.whPlatform, AppDelegate.webhookPlatforms.count - 1)]),
+            (T(145) + "/" + T(146), oldRich ? T(146) : T(145), cfg.whRich ? T(146) : T(145)),
+        ])
         notify(T(55))
     }
 
@@ -4602,7 +4662,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         LaunchAtLogin.alwaysOn = turningOn
         // 开与关各用各的句子。先前拿 133/134 当通用的「已开启/已关闭」，
         // 那两条是敏感操作验证的专用文案，套到这里就成了驴唇不对马嘴
-        Sys.log(T(turningOn ? 227 : 228))
+        SettingsAudit.record(T(226), [(T(226),
+            SettingsAudit.onOff(!turningOn), SettingsAudit.onOff(turningOn))])
         notify(T(turningOn ? 227 : 228))
         refreshIcon()
     }
@@ -4610,11 +4671,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func toggleAuthGuard() {
         if Auth.guardEnabled {
             Auth.require { [weak self] in
+                SettingsAudit.record(T(132), [(T(132), T(239), T(240))])
                 Auth.guardEnabled = false
                 self?.notify(T(134))
                 self?.refreshIcon()
             }
         } else {
+            SettingsAudit.record(T(132), [(T(132), T(240), T(239))])
             Auth.guardEnabled = true
             notify(T(133))
             refreshIcon()
