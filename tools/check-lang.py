@@ -97,13 +97,32 @@ def main():
             if re.search(r"[一-鿿]", v):
                 bad.append(f"[污染] {code}:{k} 残留汉字 → {v[:40]}")
 
+    # 第五项：条目不得被真换行截断。
+    # ini 是单行格式，正文换行必须写成字面 \\n。一旦写进真换行，后半段
+    # 就成了不匹配 ^数字= 的孤立行，加载器读不到，界面上的文案缺一截——
+    # 而且缺得不声不响。曾有 529 处这样的残缺，起因是 re.sub 的替换串
+    # 会把 \\n 当转义序列处理
+    for f in files:
+        code = os.path.basename(f)[:-4]
+        prev = None
+        for i, line in enumerate(open(f, encoding="utf-8"), 1):
+            s = line.rstrip("\n")
+            if re.match(r"^\d+=", s):
+                prev = s.split("=")[0]
+                continue
+            if not s.strip() or s.startswith("#") or s.startswith("["):
+                continue
+            if re.match(r"^(name|author)=", s):
+                continue
+            bad.append(f"[截断] {code}:{prev} 第 {i} 行游离于任何键之外 → {s[:40]}")
+
     print(f"语言文件 {len(files)} 个 × {len(base)} 条键")
     if bad:
         print(f"\n发现 {len(bad)} 处问题：")
         for b in bad:
             print("  " + b)
         return 1
-    print("四项检查全部通过 ✅")
+    print("五项检查全部通过 ✅")
     return 0
 
 
