@@ -1547,8 +1547,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // AI 翻译声明分开字级——前者是事实，后者是提醒，本就不该同重
         let W = UI.W
         let note = UI.note(I18n.shared.paragraph(T(70), width: W - 8), y: 30, height: 64)
-        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 158))
-        box.addSubview(UI.body(T(64), y: 138))      // 作者
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: W, height: 178))
+        box.addSubview(UI.body(T(64), y: 158))      // 作者
+        box.addSubview(UI.body(T(241), y: 138))     // 合作开发
         box.addSubview(UI.body(T(66), y: 118))      // 所在地
         box.addSubview(UI.body(T(65), y: 98))       // 邮箱
         box.addSubview(note)
