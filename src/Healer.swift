@@ -97,7 +97,9 @@ final class Healer {
     }
 
     /// 对勾选守护的 USB 设备逐个软件拔插。放在网卡自愈之前跑：
-    /// 若被守护的正是网卡所在的那只 USB 设备，先复位反而省了后面一遍
+    /// 若被守护的正是网卡所在的那只 USB 设备，先复位反而省了后面一遍。
+    /// 复位结果并入 autoheal 汇总通知，不再独立发——同一轮唤醒里
+    /// "usb" 和 "autoheal" 都勾了会把同一批设备报两遍
     private func resetGuardedUSB() {
         let guards = Config.load().usbGuards
         guard !guards.isEmpty else { return }
@@ -108,8 +110,9 @@ final class Healer {
             Sys.log(ok ? T(214, g.name) : T(113, out))
             if ok { done.append(g.name) }
         }
-        // 一次唤醒汇总成一条，逐台发会把通报刷成噪音
-        if !done.isEmpty { OpsNotify.report("usb", done.joined(separator: "、")) }
+        if !done.isEmpty {
+            self.infoParts.append(T(242, done.joined(separator: "、")))
+        }
     }
 
     func checkAndHeal(reason: String) {

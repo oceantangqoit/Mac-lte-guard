@@ -633,16 +633,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
+        let before = Set(cfg.targets.map(\.dev))
         var picked: [Target] = []
         for (i, (svc, dev)) in services.enumerated() where boxes[i].state == .on {
             var t = Target(dev: dev, service: svc)
             if let (v, p) = Sys.usbIDs(for: dev) { t.vid = v; t.pid = p }
             picked.append(t)
         }
+        let after = Set(picked.map(\.dev))
+        guard before != after else { return }
+        let added = picked.filter { !before.contains($0.dev) }.map(\.display)
+        let removed = cfg.targets.filter { !after.contains($0.dev) }.map(\.display)
         cfg.targets = picked
         cfg.save()
+        var parts: [String] = []
+        if !added.isEmpty { parts.append(T(243, added.joined(separator: "、"))) }
+        if !removed.isEmpty { parts.append(T(244, removed.joined(separator: "、"))) }
+        OpsNotify.report("target", parts.isEmpty ? "—" : parts.joined(separator: "、"))
         let names = picked.map(\.display).joined(separator: ", ")
-        OpsNotify.report("target", names.isEmpty ? "—" : names)
         Sys.log(T(109, names))
         notify(T(109, names))
         refreshIcon()
@@ -1280,10 +1288,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard before != after else { return }
 
         func commit(_ method: String) {
+            let added = picked.filter { g in !before.contains("\(g.vid):\(g.pid)") }
+            let removed = cfg.usbGuards.filter { g in !after.contains("\(g.vid):\(g.pid)") }
             cfg.usbGuards = picked
             cfg.save()
+            var parts: [String] = []
+            if !added.isEmpty { parts.append(T(243, added.map(\.name).joined(separator: "、"))) }
+            if !removed.isEmpty { parts.append(T(244, removed.map(\.name).joined(separator: "、"))) }
+            OpsNotify.report("usb", parts.isEmpty ? "—" : parts.joined(separator: "、"))
             let names = picked.isEmpty ? "—" : picked.map(\.name).joined(separator: "、")
-            OpsNotify.report("usb", names)
             Sys.log(T(212, names))
             self.notify(T(212, names))
             self.refreshIcon()
