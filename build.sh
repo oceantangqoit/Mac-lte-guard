@@ -18,9 +18,13 @@ MACOS_MIN="10.15"
 # 三个编译互相独立，并行跑；lipo 只等两个 swiftc（wait $pid 保留失败退出码）
 SWIFT_FLAGS="-O -parse-as-library"
 swiftc $SWIFT_FLAGS -target arm64-apple-macos$MACOS_MIN \
-  -o $B/LTEGuard.arm64 src/LTEGuard.swift -framework Cocoa -framework IOKit & P_ARM=$!
+  -o $B/LTEGuard.arm64 src/*.swift -framework Cocoa -framework IOKit \
+  -framework UserNotifications -framework LocalAuthentication \
+  -framework AVFoundation -framework CoreFoundation & P_ARM=$!
 swiftc $SWIFT_FLAGS -target x86_64-apple-macos$MACOS_MIN \
-  -o $B/LTEGuard.x86_64 src/LTEGuard.swift -framework Cocoa -framework IOKit & P_X86=$!
+  -o $B/LTEGuard.x86_64 src/*.swift -framework Cocoa -framework IOKit \
+  -framework UserNotifications -framework LocalAuthentication \
+  -framework AVFoundation -framework CoreFoundation & P_X86=$!
 clang -arch arm64 -arch x86_64 -mmacosx-version-min=$MACOS_MIN \
   -o $B/usbreset src/usbreset.c -framework IOKit -framework CoreFoundation & P_CLANG=$!
 wait $P_ARM; wait $P_X86
