@@ -178,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Sys.log(T(117, ver))
         Updater.markInstallOutcome()   // 结算上一轮安装：成了就清账，败了就记一笔
         DispatchQueue.global(qos: .background).async { Updater.sweepStaleParts() }
+        DispatchQueue.global(qos: .background).async { Updater.writeChangelog() }  // 启动即拉更新说明，不等用户点
         I18n.prepareUserLangDir()   // 启动即释放/刷新翻译模板（等效"安装时释放"，且升级后自动同步）
         UNUserNotificationCenter.current().delegate = self
         Notifier.requestAuth()
@@ -1859,8 +1860,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc func editPostCmdGated()    { Auth.gate { [weak self] in self?.editPostCmd() } }
     @objc func quitGated() {
         // 开着「永不退出」时点退出，程序会消失一下又被拉回来。
-        // 那是设定如此，但不当面说一声，看着就像退不掉的故障
-        if LaunchAtLogin.alwaysOn {
+        // 勾选时已经弹过一次确认，第一次退出再当面说一次就够——
+        // 之后都是静默：点退出 → KeepAlive 无声拉起，用户不会觉得「退不掉是故障」
+        if LaunchAtLogin.alwaysOn && !LaunchAtLogin.firstExitReminded {
             let a = NSAlert()
             a.messageText = T(225)
             a.informativeText = I18n.shared.paragraph(T(226))
@@ -1869,6 +1871,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             a.addButton(withTitle: T(18))
             NSApp.activate(ignoringOtherApps: true)
             guard a.runModal() == .alertFirstButtonReturn else { return }
+            LaunchAtLogin.firstExitReminded = true
         }
         Auth.gate("quit") {
             // 退出守护前留一张（拍照功能开启时）：谁关的门卫，门卫先拍谁
@@ -1903,6 +1906,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             a.addButton(withTitle: T(18))
             NSApp.activate(ignoringOtherApps: true)
             guard a.runModal() == .alertFirstButtonReturn else { return }
+            // 用户确认开启：重置首次退出提醒标记，下次退出时再提醒一次
+            LaunchAtLogin.firstExitReminded = false
         }
         LaunchAtLogin.alwaysOn = turningOn
         // 开与关各用各的句子。先前拿 133/134 当通用的「已开启/已关闭」，

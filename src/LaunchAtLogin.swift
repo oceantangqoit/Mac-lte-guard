@@ -18,6 +18,13 @@ enum LaunchAtLogin {
         }
     }
 
+    /// 勾选「永不退出」后第一次退出是否已弹过提示。
+    /// 勾选时弹 + 第一次退出弹，之后静默——KeepAlive 会无声拉起，不需要每次都确认。
+    static var firstExitReminded: Bool {
+        get { UserDefaults.standard.bool(forKey: "alwaysOnFirstExitReminded") }
+        set { UserDefaults.standard.set(newValue, forKey: "alwaysOnFirstExitReminded") }
+    }
+
     static var isEnabled: Bool {
         guard FileManager.default.fileExists(atPath: plistPath),
               let t = try? String(contentsOfFile: plistPath, encoding: .utf8) else { return false }
