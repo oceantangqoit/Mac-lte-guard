@@ -4,13 +4,31 @@
 
 ## 用法
 
+### 最快启动（推荐）
+
 ```sh
-./build.sh
-bin/raw_recorder                # 默认写到 ~/Documents/activity-raw-<日期>.jsonl
-bin/raw_recorder ~/mydata.jsonl # 指定输出文件
+./build.sh        # 首次先编译
+./start.sh        # 后台启动，默认写到 ~/Documents/lte-guard-raw/raw.jsonl
+tail -f ~/Documents/lte-guard-raw/raw.jsonl   # 看实时数据
+./stop.sh         # 优雅停止（写一条 stop 事件）
 ```
 
-每 5 秒采样一行 JSONL，Ctrl-C 停止。系统睡眠/唤醒也会各记一条 `event`。
+### 自定义输出路径
+
+```sh
+./start.sh ~/mydata.jsonl
+```
+
+### 开机自启（可选）
+
+```sh
+./install_launchagent.sh   # 必须在你的图形界面终端里运行
+```
+
+装成 LaunchAgent 后开机自启、崩溃自动拉起。卸载：
+`launchctl bootout gui/$(id -u)/com.oceantang.lteguard.rawrecorder && rm ~/Library/LaunchAgents/com.oceantang.lteguard.rawrecorder.plist`
+
+每 5 秒采样一行 JSONL。系统睡眠/唤醒也会各记一条 `event`。
 
 ## 数据字段（一行一个采样）
 
