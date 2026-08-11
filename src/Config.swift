@@ -32,6 +32,11 @@ struct Config {
     /// 查询间隔（秒）。0 表示「从不」，即完全不查。
     /// 档位见 Updater.intervalChoices：30 秒到 1 个月，开发调试用得上最短那档
     var updateInterval = 0
+    /// 活动感知模式（插件性质，默认关闭）：
+    /// 0 = 关闭，1 = 内建（零权限），2 = 对接 ActivityWatch
+    var activitySense = 0
+    /// 活动感知 CSV 记录文件路径（空 = 不写文件，只在 webhook 里附带）
+    var activityCSV = ""
 
     // 兼容视图：部分旧代码路径仍以"第一个对象"工作
     var dev: String { targets.first?.dev ?? "" }
@@ -59,12 +64,15 @@ struct Config {
                 continue
             }
             if key == "WEBHOOK_PLATFORM" || key == "WEBHOOK_RICH"
-                || key == "SILENT_UPDATE" || key == "UPDATE_INTERVAL" {
+                || key == "SILENT_UPDATE" || key == "UPDATE_INTERVAL"
+                || key == "ACTIVITY_SENSE" || key == "ACTIVITY_CSV" {
                 let v = Config.parseQuoted(raw) ?? raw.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
                 switch key {
                 case "WEBHOOK_PLATFORM": c.whPlatform = Int(v) ?? 0
                 case "WEBHOOK_RICH":     c.whRich = (v == "1")
                 case "SILENT_UPDATE":    c.silentInstall = (v == "1")
+                case "ACTIVITY_SENSE":   c.activitySense = max(0, min(2, Int(v) ?? 0))
+                case "ACTIVITY_CSV":     c.activityCSV = v
                 default:                 c.updateInterval = max(0, Int(v) ?? 0)
                 }
                 continue
@@ -131,6 +139,8 @@ struct Config {
         WEBHOOK_RICH='\(whRich ? 1 : 0)'
         SILENT_UPDATE='\(silentInstall ? 1 : 0)'
         UPDATE_INTERVAL='\(updateInterval)'
+        ACTIVITY_SENSE='\(activitySense)'
+        ACTIVITY_CSV='\(Config.escape(activityCSV))'
         PRE_CMD='\(Config.escape(preCmd))'
         POST_CMD='\(Config.escape(postCmd))'
 

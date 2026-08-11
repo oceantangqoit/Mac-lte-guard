@@ -187,7 +187,10 @@ final class Healer {
                         ? [CameraSnap.lastShots["wake"] ?? "", CameraSnap.lastShots["restored"] ?? ""]
                         : []
                     if cfg.notifyOps.contains("autoheal") {
-                        WebhookSender.sendRich(T(235, info), images: shots)
+                        var text = T(235, info)
+                        let act = ActivitySense.shared.summary()
+                        if !act.isEmpty { text += "\n" + T(247, act) }
+                        WebhookSender.sendRich(text, images: shots)
                     }
                     WebhookSender.flushOutbox()   // 网络已恢复：补发滞留消息
                 }

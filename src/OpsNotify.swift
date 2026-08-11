@@ -23,9 +23,12 @@ enum OpsNotify {
         let who = NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
         let host = Host.current().localizedName ?? ""
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let subject = detail.isEmpty ? name(op) : name(op) + "：" + detail
-        let text = T(231, subject)
-        if alsoLog { Sys.log(T(177, subject, "\(who)@\(host) · \(f.string(from: Date()))")) }
+        let subject = detail.isEmpty ? name(op) : name(op) + "\u{FF1A}" + detail
+        var text = T(231, subject)
+        // 活动感知（插件性质，默认 off）
+        let act = ActivitySense.shared.summary()
+        if !act.isEmpty { text += "\n" + T(247, act) }
+        if alsoLog { Sys.log(T(177, subject, "\(who)@\(host) \u{00B7} \(f.string(from: Date()))")) }
         WebhookSender.send(text)
     }
 }

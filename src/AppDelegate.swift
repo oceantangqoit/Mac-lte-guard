@@ -322,6 +322,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
         }
+
+        // 活动感知：若用户之前已开启，启动定时采样写 CSV
+        ActivitySense.shared.startCSVRecording()
     }
 
     /// SF Symbols 仅 macOS 11+ 提供；10.15 返回 nil，调用方走文字/无图标回退
@@ -433,6 +436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         iconItem.submenu = iconMenu
         setMenu.addItem(iconItem)
         setMenu.addItem(item(T(184), #selector(editNotifyGated), symbol: "bell.badge"))
+        setMenu.addItem(activitySenseItem())
         setMenu.addItem(languageItem())
         setItem.submenu = setMenu
         m.addItem(setItem)
@@ -506,6 +510,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let mm = NSMenu()
         mm.userInterfaceLayoutDirection = I18n.shared.isRTL ? .rightToLeft : .leftToRight
         return mm
+    }
+
+    /// 活动感知子菜单：模式三选一 + CSV 文件路径
+    private func activitySenseItem() -> NSMenuItem {
+        let cfg = Config.load()
+        let ai = item(T(253), nil, symbol: "waveform")
+        let am = sub()
+        for (mode, title) in [(0, T(254)), (1, T(255)), (2, T(256))] {
+            let mi = NSMenuItem(title: title, action: #selector(setActivitySense(_:)), keyEquivalent: "")
+            mi.target = self; mi.tag = mode
+            mi.state = (cfg.activitySense == mode) ? .on : .off
+            am.addItem(mi)
+        }
+        am.addItem(.separator())
+        let csvItem = NSMenuItem(title: T(257), action: #selector(pickActivityCSV), keyEquivalent: "")
+        csvItem.target = self
+        if !cfg.activityCSV.isEmpty {
+            csvItem.toolTip = cfg.activityCSV
+            csvItem.title = T(258) + " " + (cfg.activityCSV as NSString).lastPathComponent
+        }
+        am.addItem(csvItem)
+        // 清除记录文件
+        if !cfg.activityCSV.isEmpty {
+            let clr = NSMenuItem(title: T(259), action: #selector(clearActivityCSV), keyEquivalent: "")
+            clr.target = self
+            am.addItem(clr)
+        }
+        ai.submenu = am
+        return ai
     }
 
     /// 语言菜单：中文及方言、中国少数民族语言各收进子目录，其余平铺
@@ -708,6 +741,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         SettingsAudit.record(T(48), [(T(48), IconMode.current.title, mode.title)])
         IconMode.current = mode
+        refreshIcon()
+    }
+
+    // MARK: 活动感知
+
+    @objc func setActivitySense(_ sender: NSMenuItem) {
+        var cfg = Config.load()
+        cfg.activitySense = sender.tag
+        cfg.save()
+        // 切到 off → 停 timer；否则重启 timer
+        if cfg.activitySense == 0 {
+            ActivitySense.shared.stopCSVRecording()
+        } else {
+            ActivitySense.shared.startCSVRecording()
+        }
+        OpsNotify.report("settings", cfg.activitySense == 0 ? T(254) :
+            (cfg.activitySense == 1 ? T(255) : T(256)))
+        refreshIcon()
+    }
+
+    @objc func pickActivityCSV() {
+        let panel = NSSavePanel()
+        panel.allowedFileTypes = ["csv"]
+        panel.title = T(257)
+        let cfg = Config.load()
+        if !cfg.activityCSV.isEmpty { panel.directoryURL = URL(fileURLWithPath: cfg.activityCSV) }
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        var c = Config.load()
+        c.activityCSV = url.path
+        c.save()
+        if c.activitySense != 0 { ActivitySense.shared.startCSVRecording() }
+        refreshIcon()
+    }
+
+    @objc func clearActivityCSV() {
+        var c = Config.load()
+        c.activityCSV = ""
+        c.save()
+        ActivitySense.shared.stopCSVRecording()
         refreshIcon()
     }
 
@@ -973,9 +1046,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // 改了才通报。命令正文不入通报——那是可执行内容，
         // 发出去等于把「唤醒后会跑什么」原样告诉收信一方
         if cfg.preCmd != oldPre || cfg.postCmd != oldPost {
-            let n = (cfg.preCmd + "\n" + cfg.postCmd)
-                .split(separator: "\n").filter { !$0.isEmpty }.count
-            OpsNotify.report("editcmd", T(230, "\(n)"))
+            func lines(_ s: String) -> Int { s.split(separator: "\n").filter { !$0.isEmpty }.count }
+            let oldPN = lines(oldPre), newPN = lines(cfg.preCmd)
+            let oldOpN = lines(oldPost), newOpN = lines(cfg.postCmd)
+            var parts: [String] = []
+            if oldPN != newPN { parts.append(T(245, "\(oldPN)", "\(newPN)")) }
+            if oldOpN != newOpN { parts.append(T(246, "\(oldOpN)", "\(newOpN)")) }
+            OpsNotify.report("editcmd", parts.isEmpty ? "—" : parts.joined(separator: "；"))
         }
         notify(T(55))
     }
@@ -1795,7 +1872,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if cfg.whURL != oldURL || cfg.notifyOps != oldOps {
             var what: [String] = []
             if cfg.whURL != oldURL { what.append(T(229)) }
-            if cfg.notifyOps != oldOps { what.append(T(230, "\(cfg.notifyOps.count)")) }
+            if cfg.notifyOps != oldOps {
+                let added = cfg.notifyOps.subtracting(oldOps)
+                let removed = oldOps.subtracting(cfg.notifyOps)
+                var parts: [String] = []
+                if !added.isEmpty { parts.append(T(243, added.map { OpsNotify.name($0) }.sorted().joined(separator: "、"))) }
+                if !removed.isEmpty { parts.append(T(244, removed.map { OpsNotify.name($0) }.sorted().joined(separator: "、"))) }
+                what.append(parts.isEmpty ? T(230, "\(cfg.notifyOps.count)") : parts.joined(separator: "；"))
+            }
             OpsNotify.report("notify", what.joined(separator: "、"))
         }
         // 平台与图文这类不涉密的选择，走设置审计留痕（地址仍旧不入）
