@@ -17,12 +17,14 @@ echo "[1/4] 编译 Swift 与 usbreset（通用二进制 arm64+x86_64，最低 ma
 MACOS_MIN="10.15"
 # 三个编译互相独立，并行跑；lipo 只等两个 swiftc（wait $pid 保留失败退出码）
 SWIFT_FLAGS="-O -parse-as-library"
+# 主程序 + 插件1（活动感知，编译期内置于主程序，默认关闭）
+SRCS="src/*.swift plugins/1_activity_sense/*.swift"
 swiftc $SWIFT_FLAGS -target arm64-apple-macos$MACOS_MIN \
-  -o $B/LTEGuard.arm64 src/*.swift -framework Cocoa -framework IOKit \
+  -o $B/LTEGuard.arm64 $SRCS -framework Cocoa -framework IOKit \
   -framework UserNotifications -framework LocalAuthentication \
   -framework AVFoundation -framework CoreFoundation & P_ARM=$!
 swiftc $SWIFT_FLAGS -target x86_64-apple-macos$MACOS_MIN \
-  -o $B/LTEGuard.x86_64 src/*.swift -framework Cocoa -framework IOKit \
+  -o $B/LTEGuard.x86_64 $SRCS -framework Cocoa -framework IOKit \
   -framework UserNotifications -framework LocalAuthentication \
   -framework AVFoundation -framework CoreFoundation & P_X86=$!
 clang -arch arm64 -arch x86_64 -mmacosx-version-min=$MACOS_MIN \

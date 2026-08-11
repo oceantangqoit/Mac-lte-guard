@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "segment": {
+    "idle_cutoff_sec": 600,
+    "min_segment_min": 3,
+    "merge_gap_min": 10
+  },
+  "activity_types": [
+    {
+      "type": "drafting",
+      "label_zh": "文书写作",
+      "rules": [
+        "app in [Word, Pages, Typora, WPS, Ulysses]",
+        "title matches /起诉状|答辩状|上诉状|代理词|法律意见书|合同|协议|.docx?|.pages|.md/"
+      ],
+      "note": "文字类软件 + 法律文书或办公文档标题；规则可让 AI 依据真实数据再细化"
+    },
+    {
+      "type": "research",
+      "label_zh": "案例检索",
+      "rules": [
+        "app in [Safari, Chrome, Edge, Firefox]",
+        "title matches /裁判文书|北大法宝|威科先行|无讼|alpha|法信|裁判|案例|法条|民法典|刑法/"
+      ],
+      "note": "浏览器 + 法律数据库/检索关键词"
+    },
+    {
+      "type": "client_comms",
+      "label_zh": "当事人沟通",
+      "rules": [
+        "app in [微信, WeChat, 企业微信, Mail, 邮件, QQ, 钉钉]"
+      ],
+      "note": "通讯与邮件软件"
+    },
+    {
+      "type": "meeting",
+      "label_zh": "会议/会见",
+      "rules": [
+        "app in [腾讯会议, Zoom, Teams, 钉钉会议, Webex]",
+        "title matches /会议|Meeting|会见|庭前会议/"
+      ],
+      "note": "视频会议软件"
+    },
+    {
+      "type": "reading",
+      "label_zh": "卷宗研读",
+      "rules": [
+        "title matches /.pdf|PDF|扫描|卷宗|案卷/"
+      ],
+      "note": "PDF/卷宗阅读（通常是 idle 较大、鼠标滚动为主）"
+    },
+    {
+      "type": "admin",
+      "label_zh": "行政事务",
+      "rules": [
+        "app in [Numbers, Excel, WPS表格, 日历, Calendar, 提醒事项, Reminders, 系统设置]"
+      ],
+      "note": "表格/日程/系统类"
+    }
+  ],
+  "case_extraction": {
+    "path_patterns": [],
+    "person_suffixes": ["诉", "vs", "v."],
+    "company_suffixes": ["有限公司", "股份公司", "有限责任公司", "事务所", "集团", "银行"],
+    "doc_keywords": ["起诉状", "答辩状", "上诉状", "代理词", "合同", "尽调报告", "法律意见书", "协议", "补充证据", "质证意见"],
+    "ask_when": "工作片段 ≥3 分钟、类型非休息，且从路径/标题无法提取当事人或公司名时，弹对话框询问"
+  },
+  "common": [
+    "法律文书类工作（drafting）通常与文字软件+文书文件名强相关",
+    "检索类工作（research）通常集中在浏览器+法律数据库",
+    "沟通类工作零散但频繁，单段时长普遍短于文书写作",
+    "计时收费律师关心：每段工作的起止时间与归属案件（billable hour）"
+  ],
+  "personal": [
+    "待 AI 分析插件3 数据后补充：上下班时间、常用目录结构、案件命名习惯"
+  ],
+  "confidence": {
+    "high": ["内置兜底的通用启发式可先跑起来"],
+    "low": ["活动类型边界、案件命名规律需真实数据校准——请先跑 3-7 天 raw_recorder，再用 PROMPT.md 让 AI 重新生成本文件"]
+  }
+}
