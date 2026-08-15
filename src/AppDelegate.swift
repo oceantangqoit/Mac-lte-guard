@@ -325,6 +325,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // 活动感知：若用户之前已开启，启动定时采样写 CSV
         ActivitySense.shared.startCSVRecording()
+        // 外置插件：上次在跑的自动拉起，不用每次手工开
+        PluginCenter.restoreAll()
     }
 
     /// SF Symbols 仅 macOS 11+ 提供；10.15 返回 nil，调用方走文字/无图标回退
@@ -543,135 +545,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return ai
     }
 
-    /// 插件 ▸ 顶层菜单：插件1 活动感知（内建界面）＋ 插件2 律师日志 / 插件3 原始采集器（外置程序启动控制）
+    /// 插件 ▸ 顶层菜单：设置面板 + 插件1 活动感知（内建）＋ 插件2/3/4（外置程序启动控制）
     private func pluginItem() -> NSMenuItem {
         let pi = item(T(260), nil, symbol: "square.grid.2x2")
         let pm = sub()
+        // 插件设置面板：输出文件夹、DDNS 参数、运行状态总览
+        pm.addItem(item(T(273), #selector(showPluginPanel), symbol: "gear"))
+        pm.addItem(.separator())
         // 插件1：活动感知（已内建，界面在子菜单里）
         pm.addItem(activitySenseItem())
         // 插件3：原始采集器
-        let rawOut = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/lte-guard-raw").path
         pm.addItem(pluginRunnerItem(
-            title: T(262), symbol: "record.circle",
-            bin: binPath("3_raw_recorder/bin/raw_recorder"),
-            match: "bin/raw_recorder",
-            outDir: rawOut,
+            id: .raw, title: T(262), symbol: "record.circle",
             startTitle: T(270), startSel: #selector(startRawRecorder),
-            stopTitle: T(267), stopSel: #selector(stopRawRecorder),
-            openTitle: T(268), openSel: #selector(openRawDir)))
+            stopSel: #selector(stopRawRecorder), openSel: #selector(openRawDir)))
         // 插件2：律师日志
         pm.addItem(pluginRunnerItem(
-            title: T(263), symbol: "briefcase",
-            bin: binPath("2_lawyer_log/bin/lawyer_log"),
-            match: "bin/lawyer_log",
-            outDir: FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Documents").path,
+            id: .lawyer, title: T(263), symbol: "briefcase",
             startTitle: T(271), startSel: #selector(startLawyerLog),
-            stopTitle: T(267), stopSel: #selector(stopLawyerLog),
-            openTitle: T(268), openSel: #selector(openLawyerDir)))
+            stopSel: #selector(stopLawyerLog), openSel: #selector(openLawyerDir)))
+        // 插件4：Cloudflare DDNS
+        pm.addItem(pluginRunnerItem(
+            id: .ddns, title: T(276), symbol: "network",
+            startTitle: T(266), startSel: #selector(startDDNS),
+            stopSel: #selector(stopDDNS), openSel: #selector(openDDNSDir)))
         pi.submenu = pm
         return pi
     }
 
-    /// 外置插件（2/3）的通用子菜单：运行状态 + 启动/停止 + 打开输出目录
-    private func pluginRunnerItem(title: String, symbol: String, bin: String, match: String,
-                                  outDir: String,
+    /// 外置插件的通用子菜单：运行状态 + 启动/停止 + 打开输出目录
+    private func pluginRunnerItem(id: PluginID, title: String, symbol: String,
                                   startTitle: String, startSel: Selector,
-                                  stopTitle: String, stopSel: Selector,
-                                  openTitle: String, openSel: Selector) -> NSMenuItem {
+                                  stopSel: Selector, openSel: Selector) -> NSMenuItem {
         let ii = item(title, nil, symbol: symbol)
         let mm = sub()
-        let running = processRunning(match)
+        let running = PluginCenter.running(id)
         let st = NSMenuItem(title: running ? T(264) : T(265), action: nil, keyEquivalent: "")
         st.isEnabled = false
         st.state = running ? .on : .off
         mm.addItem(st)
         mm.addItem(.separator())
-        if FileManager.default.isExecutableFile(atPath: bin) {
+        if PluginCenter.built(id) {
             mm.addItem(item(startTitle, startSel, symbol: "play.fill"))
-            mm.addItem(item(stopTitle, stopSel, symbol: "stop.fill"))
+            mm.addItem(item(T(267), stopSel, symbol: "stop.fill"))
         } else {
             let nb = NSMenuItem(title: T(269), action: nil, keyEquivalent: "")
             nb.isEnabled = false
             mm.addItem(nb)
         }
-        mm.addItem(item(openTitle, openSel, symbol: "folder"))
+        mm.addItem(item(T(268), openSel, symbol: "folder"))
         ii.submenu = mm
         return ii
     }
 
-    /// 开发仓库内插件二进制路径（本机 = 开发机）
-    private func binPath(_ rel: String) -> String {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("lte-guard-share/plugins").appendingPathComponent(rel).path
-    }
-
-    /// 检测进程是否在运行（按命令行片段匹配）
-    private func processRunning(_ match: String) -> Bool {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        p.arguments = ["-f", match]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = FileHandle.nullDevice
-        do { try p.run(); p.waitUntilExit() } catch { return false }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return !data.isEmpty
-    }
-
-    /// 启动一个外部进程（detached，不阻塞菜单）
-    @discardableResult
-    private func launchProcess(_ path: String, args: [String]) -> Bool {
-        guard FileManager.default.isExecutableFile(atPath: path) else { return false }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = args
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        do { try p.run(); return true } catch { return false }
-    }
+    @objc func showPluginPanel() { PluginPanel.shared.show() }
 
     // MARK: 插件3 原始采集器控制
 
-    @objc func startRawRecorder() {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/lte-guard-raw")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let out = dir.appendingPathComponent("raw.jsonl").path
-        _ = launchProcess(binPath("3_raw_recorder/bin/raw_recorder"), args: [out])
-        rebuildMenu()
-    }
-
-    @objc func stopRawRecorder() {
-        _ = launchProcess("/usr/bin/pkill", args: ["-INT", "-f", "bin/raw_recorder"])
-        rebuildMenu()
-    }
-
-    @objc func openRawDir() {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/lte-guard-raw")
-        NSWorkspace.shared.open(dir)
-    }
+    @objc func startRawRecorder() { PluginCenter.start(.raw); rebuildMenu() }
+    @objc func stopRawRecorder() { PluginCenter.stop(.raw); rebuildMenu() }
+    @objc func openRawDir() { openPluginDir(.raw) }
 
     // MARK: 插件2 律师日志控制
 
-    @objc func startLawyerLog() {
-        let csv = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/lawyer-work-log.csv").path
-        _ = launchProcess(binPath("2_lawyer_log/bin/lawyer_log"),
-                          args: ["--csv", csv, "--ask", "off"])
+    @objc func startLawyerLog() { PluginCenter.start(.lawyer); rebuildMenu() }
+    @objc func stopLawyerLog() { PluginCenter.stop(.lawyer); rebuildMenu() }
+    @objc func openLawyerDir() { openPluginDir(.lawyer) }
+
+    // MARK: 插件4 Cloudflare DDNS 控制
+
+    @objc func startDDNS() {
+        // 参数不全直接带去设置面板，比弹个错误让人自己找入口强
+        guard PluginCenter.ddnsConfig().complete else {
+            let a = NSAlert()
+            a.messageText = T(276)
+            a.informativeText = T(284)
+            a.addButton(withTitle: T(17))
+            a.runModal()
+            showPluginPanel()
+            return
+        }
+        PluginCenter.start(.ddns)
         rebuildMenu()
     }
+    @objc func stopDDNS() { PluginCenter.stop(.ddns); rebuildMenu() }
+    @objc func openDDNSDir() { openPluginDir(.ddns) }
 
-    @objc func stopLawyerLog() {
-        _ = launchProcess("/usr/bin/pkill", args: ["-INT", "-f", "bin/lawyer_log"])
-        rebuildMenu()
-    }
-
-    @objc func openLawyerDir() {
-        NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents"))
+    private func openPluginDir(_ id: PluginID) {
+        let dir = PluginCenter.outDir(id)
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(URL(fileURLWithPath: dir))
     }
 
     /// 重建菜单（动作后刷新状态显示）

@@ -98,10 +98,13 @@ enum WebhookSender {
         let text = stamp(rawText)
         guard let (p, u) = configured() else { return }
         let imgs = images.filter { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) }
-        guard !imgs.isEmpty, AppDelegate.webhookRichCapable.contains(p) else { send(text); return }
+        // 上面已盖过戳，转交 send 时必须声明 stamped——否则兜底路径会盖出第二个落款
+        guard !imgs.isEmpty, AppDelegate.webhookRichCapable.contains(p) else {
+            send(text, stamped: true); return
+        }
         switch p {
         case 0:   // 企业微信：文本一条 + 每张 base64 图片一条（协议不支持真混排）
-            send(text)
+            send(text, stamped: true)
             for f in imgs {
                 guard let d = FileManager.default.contents(atPath: f) else { continue }
                 postJSON(u, ["msgtype": "image",

@@ -12,9 +12,14 @@ struct SensorData {
     var bundleID = ""
     var pid = -1
     var windowTitle = ""    // 窗口标题（需屏幕录制权限，无则空）
-    var dir = ""            // 启发式提取的"激活目录"
-    var idleSec = -1        // 键鼠空闲秒数
-    var mouseMovedSec = -1  // 鼠标/触摸板移动距今秒数
+    var dir = ""            // 启发式提取的"激活目录"（访达时为真实路径）
+    var kbdIdleSec = -1     // 键盘空闲秒数（距上次按键）
+    var mouseIdleSec = -1   // 鼠标/触摸板空闲秒数（距上次移动）
+    var mouseX = -1.0       // 光标位置（Quartz 全局坐标，原点在主屏左上）
+    var mouseY = -1.0
+    var hoverApp = ""       // 光标悬停窗口所属 App（悬停 ≠ 聚焦）
+    var hoverPID = -1
+    var hoverTitle = ""     // 悬停窗口标题（需屏幕录制权限，无则空）
     var charging = false
     var onBattery = false
     var batteryPct = -1
@@ -35,7 +40,9 @@ extension SensorData {
         [
             "ts": ts, "app": app, "bundle_id": bundleID, "pid": pid,
             "window_title": windowTitle, "dir": dir,
-            "idle_sec": idleSec, "mouse_moved_sec": mouseMovedSec,
+            "kbd_idle_sec": kbdIdleSec, "mouse_idle_sec": mouseIdleSec,
+            "mouse_x": mouseX, "mouse_y": mouseY,
+            "hover_app": hoverApp, "hover_pid": hoverPID, "hover_title": hoverTitle,
             "charging": charging, "on_battery": onBattery, "battery_pct": batteryPct,
             "iface": iface, "gateway": gateway, "ip": ip, "ssid": ssid,
             "displays": displays, "display_sleep": displaySleep,
@@ -73,10 +80,22 @@ enum Sensors {
     }
 
     // ── 前台 App（零权限）──
+    // NSWorkspace.frontmostApplication 在后台进程中返回的是自身激活上下文的 App，
+    // 不是系统真正的前台 App。改用 CGWindowList 找屏幕上最前面的窗口，
+    // 取其 owner PID 再反查 App——ActivityWatch 同款思路，无需任何权限。
 
     static func frontmostApp() -> (name: String, bundleID: String, pid: Int) {
-        if let fg = NSWorkspace.shared.frontmostApplication {
-            return (fg.localizedName ?? "", fg.bundleIdentifier ?? "", Int(fg.processIdentifier))
+        let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] ?? []
+        // 窗口列表按 z-order 从前到后排列，第一个 layer==0 的窗口即前台窗口
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int ?? -1) == 0 else { continue }
+            guard let pid = w[kCGWindowOwnerPID as String] as? Int, pid > 0 else { continue }
+            // 跳过系统级窗口（WindowServer 等）
+            guard let app = NSRunningApplication(processIdentifier: pid_t(pid)) else { continue }
+            let name = app.localizedName ?? (w[kCGWindowOwnerName as String] as? String ?? "")
+            return (name, app.bundleIdentifier ?? "", pid)
         }
         return ("", "", -1)
     }
@@ -93,6 +112,19 @@ enum Sensors {
             return w[kCGWindowOwnerName as String] as? String ?? ""
         }
         return ""
+    }
+
+    // ── Finder 当前目录（AppleScript，需一次性"自动化"授权；未授权/无窗口返回空，不阻塞）──
+    // 授权按"责任进程"归属：从哪个终端启动采集器，权限就记在那个终端 App 上。
+
+    static func finderPath() -> String {
+        let out = run("/usr/bin/osascript", [
+            "-e", "with timeout of 3 seconds",
+            "-e", "tell application \"Finder\" to get POSIX path of (target of front window as alias)",
+            "-e", "end timeout",
+        ])
+        let p = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return p.hasPrefix("/") ? p : ""
     }
 
     // ── 激活目录（启发式：从窗口标题提取路径；cwd 无权限拿不到）──
@@ -112,10 +144,38 @@ enum Sensors {
 
     // ── 键鼠空闲（零权限）──
 
-    static func idleSeconds() -> (idle: Int, mouseMovedSec: Int) {
+    static func idleSeconds() -> (kbdIdle: Int, mouseIdle: Int) {
         let keyIdle = Int(CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyDown))
         let mouseIdle = Int(CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .mouseMoved))
         return (keyIdle, mouseIdle)
+    }
+
+    // ── 光标位置与悬停窗口（零权限）──
+    // CGEvent(source:nil)?.location 直接返回 Quartz 全局坐标（左上原点），
+    // 与 CGWindowList 的 bounds 同坐标系，无需换算。
+    // 窗口 bounds/owner 不需屏幕录制权限；窗口名（title）需要，无则空。
+    // 注意：悬停窗口 ≠ 键盘焦点窗口（键盘输入永远进前台焦点窗口，即 app/window_title）。
+
+    static func mouseInfo() -> (x: Double, y: Double, hoverApp: String, hoverPID: Int, hoverTitle: String) {
+        guard let loc = CGEvent(source: nil)?.location else { return (-1, -1, "", -1, "") }
+        let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] ?? []
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int ?? -1) == 0 else { continue }
+            guard let b = w[kCGWindowBounds as String] as? [String: Any],
+                  let wx = b["X"] as? Double, let wy = b["Y"] as? Double,
+                  let ww = b["Width"] as? Double, let wh = b["Height"] as? Double else { continue }
+            guard loc.x >= wx, loc.x < wx + ww, loc.y >= wy, loc.y < wy + wh else { continue }
+            let pid = w[kCGWindowOwnerPID as String] as? Int ?? -1
+            let app = pid > 0
+                ? (NSRunningApplication(processIdentifier: pid_t(pid))?.localizedName
+                    ?? (w[kCGWindowOwnerName as String] as? String ?? ""))
+                : (w[kCGWindowOwnerName as String] as? String ?? "")
+            let title = w[kCGWindowName as String] as? String ?? ""
+            return (loc.x, loc.y, app, pid, title)
+        }
+        return (loc.x, loc.y, "", -1, "")
     }
 
     // ── 电源（pmset，零权限）──
@@ -220,8 +280,15 @@ enum Sensors {
         s.app = fg.name; s.bundleID = fg.bundleID; s.pid = fg.pid
         s.windowTitle = frontWindowTitle(pid: fg.pid)
         s.dir = activeDirectory(windowTitle: s.windowTitle)
+        // 前台是访达时，用 AppleScript 取当前文件夹完整路径（标题启发式拿不到）
+        if s.dir.isEmpty, fg.bundleID == "com.apple.finder" {
+            s.dir = finderPath()
+        }
         let idle = idleSeconds()
-        s.idleSec = idle.idle; s.mouseMovedSec = idle.mouseMovedSec
+        s.kbdIdleSec = idle.kbdIdle; s.mouseIdleSec = idle.mouseIdle
+        let mi = mouseInfo()
+        s.mouseX = mi.x; s.mouseY = mi.y
+        s.hoverApp = mi.hoverApp; s.hoverPID = mi.hoverPID; s.hoverTitle = mi.hoverTitle
         let pw = power()
         s.charging = pw.charging; s.onBattery = pw.onBattery; s.batteryPct = pw.pct
         let rt = defaultRoute()

@@ -190,8 +190,8 @@ final class Engine {
 
     /// 每次采样驱动状态机
     func onSample(_ s: SensorData) {
-        // 空闲/屏幕熄 → 结束片段
-        if s.idleSec >= rules.segment.idleCutoffSec || s.displaySleep {
+        // 键鼠都空闲超阈值/屏幕熄 → 结束片段（取两者较小值：任一设备有活动都算人在）
+        if min(s.kbdIdleSec, s.mouseIdleSec) >= rules.segment.idleCutoffSec || s.displaySleep {
             if current != nil { finalize(note: s.displaySleep ? "屏幕熄灭" : "空闲超时") }
             return
         }
@@ -204,7 +204,7 @@ final class Engine {
         if !s.windowTitle.isEmpty { seg.titleCounts[s.windowTitle, default: 0] += 1 }
         if !s.dir.isEmpty { seg.dirCounts[s.dir, default: 0] += 1 }
         current = seg
-        if debug { print("[\(s.ts)] \(s.app) · \(s.windowTitle) · idle=\(s.idleSec)") }
+        if debug { print("[\(s.ts)] \(s.app) · \(s.windowTitle) · kbd_idle=\(s.kbdIdleSec) mouse_idle=\(s.mouseIdleSec)") }
     }
 
     /// 系统睡眠 → 结束片段

@@ -19,8 +19,10 @@
 | `app` / `bundle_id` | 前台 App | |
 | `pid` | 进程号 | |
 | `window_title` | 窗口标题 | 可能为空（无屏幕录制权限） |
-| `dir` | 从标题提取的路径片段 | 可能是 `cases/张三诉李四/答辩状.md` 这类 |
-| `idle_sec` / `mouse_moved_sec` | 键鼠空闲秒数 | 越大越可能在离开/阅读 |
+| `dir` | 激活路径 | 标题提取的路径片段；前台是访达时为真实文件夹路径 |
+| `kbd_idle_sec` / `mouse_idle_sec` | 键盘/鼠标空闲秒数 | 两者都大=人离开；仅键盘大=可能在用鼠标阅读 |
+| `mouse_x` / `mouse_y` | 光标位置 | Quartz 全局坐标（主屏左上原点） |
+| `hover_app` / `hover_pid` / `hover_title` | 光标悬停的窗口 | 悬停≠聚焦：可发现"焦点在A窗口、眼睛看B窗口" |
 | `charging` / `on_battery` / `battery_pct` | 电源 | |
 | `iface` / `ip` / `gateway` | 网络 | en0=Wi-Fi，en2=LTE |
 | `ssid` | 无线网络名 | 可能为空 |
